@@ -1,0 +1,66 @@
+2026-10-09 10:15:43 [INFO] Review succeeded on attempt 1/3 with 0 finding(s).
+2026-10-09 10:16:35 [INFO] Business review succeeded on attempt 1/3 with 0 finding(s).
+Comparing branches: 'sg_cl_sri_datatables_cdn' -> 'onestackcbs'...
+Running review with provider 'claude'...
+Running Business Context review...
+
+AI Review Summary
+
+Overview:
+  What Changed: Adds Subresource Integrity (sha384 integrity + crossorigin="anonymous") to the two version-pinned cdn.datatables.net scripts on the Share Certificate view (DataTables 1.10.13 and Buttons 1.2.4). Removes the redundant CDN DataTables 1.13.5 script tag from the Locker Availability view, which now relies on the DataTables 1.13.6 copy the admin shell already loads.
+  Files Modified: application/modules/cbs/views/product-managment/share-certificate.php, application/modules/cbs/views/service-managment/locker-availability.php
+  High-Level Impact: Front-end only, with no PHP, auth or data logic changes. If the CDN files are tampered with, the share-certificate scripts are now blocked. If a committed hash does not match the bytes the CDN serves, or the CDN stops sending CORS headers, the browser will refuse both scripts and the Share Certificate table and export buttons will stop working. The Locker Availability table now depends entirely on the globally loaded DataTables 1.13.6 rather than its own CDN 1.13.5 copy.
+  Potential Review Focus: 1) Re-derive both sha384 hashes from the pinned URLs and confirm they match the committed values exactly, and confirm cdn.datatables.net returns Access-Control-Allow-Origin: *. 2) Open Locker Availability in the browser and confirm DataTables is already defined when appendAjaxDataTable runs, given the view is injected dynamically and its loader was not statically verified. 3) Open Share Certificate Management, check there are no integrity/digest console errors, and confirm the table and Buttons export still work.
+
+Critical: 0
+High: 0
+Medium: 0
+Low: 0
+Suggestion: 0
+
+Total Findings: 0
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: LOW
+Summary: A narrowly scoped front-end hardening change to three script tags on two admin views, with no business logic, data or API impact.
+Factors:
+  - Only 2 view files and 3 script tags are affected
+  - SRI is only viable here because all target URLs are version-pinned
+  - The main risk is runtime: a wrong hash or missing CORS blocks the script, and removing the locker script assumes a global DataTables is present
+  - Unpinned vendor scripts (Razorpay, gtag, Haptik) are correctly excluded
+
+Fix Quality
+Level: GOOD
+Summary: The diff does exactly what the agreed scope says, with minimal and correct changes. Its correctness depends on the hash values and on browser checks that cannot be confirmed from the diff alone.
+Strengths:
+  - SRI is applied only to version-pinned CDN URLs, so the hashes stay valid over time
+  - Uses sha384 with crossorigin="anonymous", which matches the integrity attribute style already used in the codebase
+  - Removes a duplicate DataTables load (CDN 1.13.5 on top of local 1.13.6) instead of hashing it, which reduces both external dependency and the risk of version conflicts
+  - Change is tightly scoped and leaves unrelated third-party tags alone
+Areas for Improvement:
+  - The PR has no description; it should record how the hashes were derived and the CORS check result so reviewers can reproduce them
+  - The PR should state whether the Locker Availability and Share Certificate browser checks were run, or list them as required reviewer checks, because the locker view's loader is unverified
+
+Database Recommendations
+------------------------
+None identified.
+
+Business Context Review
+-----------------------
+Status: COMPLETED
+
+Requirements: 4 identified, 4 covered, 0 partially covered
+Scenarios: 3 identified, 3 covered, 0 missing
+Business Rules: 3 identified, 3 satisfied, 0 violated
+
+Total Business Findings: 0
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Branch comparison mode: this review is not published to GitHub -- there is no pull request to attach it to.
+EXIT=0 TOOK=115s

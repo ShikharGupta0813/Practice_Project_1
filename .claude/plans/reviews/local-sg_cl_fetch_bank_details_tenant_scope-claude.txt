@@ -1,0 +1,100 @@
+2026-09-29 12:56:40 [WARNING] Business Context source '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md' failed to load: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md' must start with 'file:', 'asana:', or 'notion:'.
+2026-09-29 12:56:40 [ERROR] Business Context error: All Business Context sources failed to load: /mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md' must start with 'file:', 'asana:', or 'notion:'.
+2026-09-29 12:57:33 [INFO] Review succeeded on attempt 1/3 with 0 finding(s).
+Comparing branches: 'sg_cl_fetch_bank_details_tenant_scope' -> 'onestackcbs'...
+Running review with provider 'claude'...
+
+AI Review Summary
+
+Overview:
+  What Changed: Adds a tenant-scoping guard to the fetchBankDetails POST handler in both copies of Bank_register_controller. If the session has a company_id (a bank user), the handler loads that company's company_gstn from COMPANY_MASTER. It rejects the request with 'Invalid user id' unless the GSTN in the request matches it, ignoring case and surrounding spaces. Sessions without a company_id (OneStack users) keep unrestricted lookup.
+  Files Modified: application/modules/mobile_app/controllers/Bank_register_controller.php, application/modules/mobile_app/controllers/bank_onboarding_form/Bank_register_controller.php
+  High-Level Impact: Closes a cross-tenant data exposure: bank users could previously fetch another bank's onboarding record, including contact PII and CBS credentials such as cbs_apikey and cbs_publickey, by submitting any GSTN. It adds one primary-key lookup per request. Behaviour for OneStack users (no company_id in session) does not change.
+  Potential Review Focus: Check that every bank-user login path always sets company_id in the session, because a missing or empty company_id falls through to unrestricted access. Check that the GSTN stored in COMPANY_MASTER.company_gstn matches the gst_number used by the downstream bank-details query, so legitimate users are not locked out. The two copies of the check must stay identical.
+
+Code Flow Diagram
+-----------------
+Shows the new tenant-scoping check that now runs before bank details are fetched.
+
+```mermaid
+flowchart TD
+    A[POST fetchBankDetails with company_gstn] --> B{Session has company_id?}
+    B -->|No - OneStack user| E[Fetch bank details by GSTN]
+    B -->|Yes - bank user| C[Load own company_gstn from COMPANY_MASTER]
+    C --> D{Own GSTN matches request GSTN?}
+    D -->|Yes| E
+    D -->|No or missing| F[Return Invalid user id]
+```
+
+Relevant code: application/modules/mobile_app/controllers/Bank_register_controller.php, application/modules/mobile_app/controllers/bank_onboarding_form/Bank_register_controller.php
+
+Critical: 0
+High: 0
+Medium: 0
+Low: 0
+Suggestion: 0
+
+Total Findings: 0
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: LOW
+Summary: This is a single authorization check that ties a request parameter to the tenant in the session, placed at the start of one endpoint that is duplicated in two controllers. There is one business rule and no state changes or integrations.
+Factors:
+  - Single business rule: bank users may only read their own bank's record
+  - Two user classes, told apart by whether company_id is in the session
+  - Same endpoint duplicated in two controller files
+  - Sensitive data involved (CBS API keys, contact PII) raises the stakes but not the complexity
+
+Fix Quality
+Level: GOOD
+Summary: The check is correct and small, and it runs before any sensitive data is queried. It denies access when the company record or its GSTN is missing, and it is applied the same way to both copies of the endpoint.
+Strengths:
+  - Check runs before the sensitive select, so no data is read for requests that will be rejected
+  - Denies access when the company row is missing or company_gstn is empty, instead of allowing it
+  - Case- and whitespace-insensitive comparison avoids false rejections from formatting differences
+  - Applied the same way in both duplicated controllers
+  - Uses the existing CommonModel/DbTable query path, not raw SQL
+Areas for Improvement:
+  - Access is decided by whether company_id is present in the session, so a bank-user session that lacks company_id gets unrestricted access. Consider checking for an explicit OneStack role instead.
+  - The rejection message 'Invalid user id' does not describe the actual failure (GSTN does not belong to the caller's bank). This makes client-side handling and support triage harder.
+  - The same guard is copied into two files; a shared helper would stop them drifting apart in future fixes
+  - No regression test or documented manual check covers the cross-tenant rejection case
+
+Database Recommendations
+------------------------
+[LOW] COLUMN_EXISTENCE_CHECK
+    Table: company_master (DbTable::COMPANY_MASTER)
+    Columns: id, company_gstn
+    Recommendation: Verify in production that company_master has a company_gstn column and that it is filled in for every active bank company.
+    Reason: Bank users whose company row has an empty or NULL company_gstn will now always be rejected by this endpoint.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] PRODUCTION_DB_VERIFICATION
+    Table: company_master
+    Columns: company_gstn
+    Recommendation: Verify that company_master.company_gstn values match the gst_number values used by the downstream bank-details lookup for the same bank, ignoring case and whitespace.
+    Reason: The new guard compares the request GSTN with company_master.company_gstn, while the existing query looks up the record by the request GSTN. If the two sources disagree for a bank, that bank's users can no longer fetch their own details.
+    Action: Cross-check the actual database before release.
+
+[INFO] INDEX_CHECK
+    Table: company_master
+    Columns: id
+    Recommendation: Verify that company_master.id is the primary key or is indexed.
+    Reason: The PR adds a lookup by id on every fetchBankDetails request from a bank user.
+    Action: Cross-check the actual database before release.
+
+Business Context Review
+-----------------------
+Status: NOT COMPLETED
+Reason: All Business Context sources failed to load: /mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md' must start with 'file:', 'asana:', or 'notion:'.
+Technical Review: COMPLETED
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Branch comparison mode: this review is not published to GitHub -- there is no pull request to attach it to.
+EXIT=0 TOOK=53s

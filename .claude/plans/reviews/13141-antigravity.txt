@@ -1,0 +1,66 @@
+2026-09-19 19:18:46 [INFO] Review succeeded on attempt 1/3 with 4 finding(s).
+Fetching metadata for PR #13141...
+Running review with provider 'antigravity'...
+
+AI Review Summary
+
+Overview:
+  What Changed: Implemented rate limiting and lockout logic for M-PIN verification during NPCI IBMB payment requests using a sliding time window and database attempt logging.
+  Files Modified: application/modules/mobile_app/controllers/npci-ibmb/NpciIBMB.php
+  High-Level Impact: Introduces a maximum attempt threshold for M-PIN verification to mitigate brute-force attacks, recording failed attempts in the database and returning an error response when exceeded.
+  Potential Review Focus: Examine how customer identity and mobile numbers are resolved, whether failed attempt counts properly reset on successful verification, and the accessibility and input sanitization of helper methods.
+
+Critical: 0
+High: 2
+Medium: 2
+Low: 0
+Suggestion: 0
+
+Total Findings: 4
+
+[HIGH] application/modules/mobile_app/controllers/npci-ibmb/NpciIBMB.php:509 - Rate limiting is bypassed when mobile number is unresolved
+    category=Security confidence=0.95
+    The rate limiting check requires `!empty($mobileNo)`, allowing execution to proceed unchecked if the customer's mobile number cannot be retrieved. This allows an attacker to continuously brute-force M-PIN credentials without lockout for any customer account missing a mobile number. In production, this undermines the credential protection mechanism intended by this fix. Ensure the endpoint fails closed or falls back to an account or customer identifier when the mobile number is unavailable.
+
+[HIGH] application/modules/mobile_app/controllers/npci-ibmb/NpciIBMB.php:1219 - Helper methods declared as public controller actions
+    category=Security confidence=0.92
+    Declaring `mobile_otp_sent_logs` and `is_max_otp_attempts_exceeded` as public methods in a CodeIgniter controller exposes them as directly callable HTTP endpoints. An unauthenticated external caller can invoke `mobile_otp_sent_logs` directly to inject arbitrary attempt records for any mobile number. In production, an attacker could maliciously lock legitimate users out of payment authorization by triggering denial of service. Change the visibility of these methods to `protected` or `private`.
+
+[MEDIUM] application/modules/mobile_app/controllers/npci-ibmb/NpciIBMB.php:536 - Failed attempt counter does not reset upon successful verification
+    category=Correctness confidence=0.90
+    Failed attempts logged in `MOBILE_LOGIN_ATTEMPT` are never cleared or marked resolved when the user enters the correct M-PIN. Legitimate users who make isolated typos across separate transactions within the 15-minute window will have those attempts accumulate. In production, this causes legitimate users to be locked out unexpectedly even after completing successful payments. Clear or reset the failed attempt counter for the customer upon successful M-PIN verification.
+
+[MEDIUM] application/modules/mobile_app/controllers/npci-ibmb/NpciIBMB.php:504 - Unvalidated and unsanitized HTTP_X_FORWARDED_FOR header
+    category=Reliability confidence=0.88
+    Directly reading `$_SERVER['HTTP_X_FORWARDED_FOR']` without parsing or validation allows comma-separated multi-proxy IP strings or spoofed client values. If the string exceeds the database column width for `ip_address`, the subsequent insert into `MOBILE_LOGIN_ATTEMPT` will throw an unhandled database exception. In production, this can crash failed verification handling and produce 500 errors. Use CodeIgniter's `$this->input->ip_address()` to safely extract and validate the client IP.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: Adding credential lockout to payment authorization requires managing stateful attempt counters across a sliding window while avoiding denial-of-service edge cases.
+Factors:
+  - Security-critical payment credential verification involving NPCI banking specifications
+  - State tracking across a configurable sliding time window using database records
+  - Account and customer identity resolution considerations during request processing
+
+Fix Quality
+Level: NEEDS_IMPROVEMENT
+Summary: The PR addresses the core requirement of checking and logging failed attempts, but introduces security and reliability gaps through exposed controller actions, missing counter resets, and fail-open rate limiting.
+Strengths:
+  - Successfully queries recent failed attempts and halts execution before reaching credential verification if the threshold is exceeded
+  - Uses configurable constants with sensible fallbacks for maximum attempts and lockout window duration
+  - Logs failed attempts across all invalid M-PIN check branches
+Areas for Improvement:
+  - Restrict visibility of internal helper methods to protected or private so they are not routed as public endpoints
+  - Avoid failing open when `mobileNo` cannot be resolved, using account or customer ID as an alternative or failing closed
+  - Reset or clear failed attempts upon successful M-PIN verification to prevent false-positive lockouts across multiple transactions
+  - Safely extract and sanitize client IP addresses using framework utilities rather than raw server headers
+
+Business Context Review
+-----------------------
+Status: NOT PROVIDED
+
+Dry run: skipping publish step. No changes were made to GitHub.
+EXIT=0 TOOK=84s

@@ -1,0 +1,13 @@
+assets/custom/js/application.js
+assets/custom/js/layout/js/layout.js
+assets/custom/js/pages/coming_soon.js
+assets/custom/js/pages/ecommerce.js
+assets/custom/js/pages/form_wizard.js
+assets/custom/js/pages/login-v1.js
+assets/custom/js/pages/login-v2.js
+assets/custom/js/pages/mailbox.js
+assets/custom/js/pages/pie-chart.js
+assets/custom/js/plugins.js
+assets/custom/js/quickview.js
+assets/custom/js/widgets/notes.js
+assets/custom/js/widgets/widget_weather.js

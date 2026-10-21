@@ -1,0 +1,118 @@
+2026-09-30 13:16:46 [INFO] Review succeeded on attempt 1/3 with 0 finding(s).
+2026-09-30 13:18:15 [INFO] Business review succeeded on attempt 1/3 with 0 finding(s).
+Comparing branches: 'sg_cl_safegold_signature_verify' -> 'onestackcbs'...
+Running review with provider 'claude'...
+Running Business Context review...
+
+AI Review Summary
+
+Overview:
+  What Changed: The SafeGold `save_payment_post()` callback in the apiv2 and apiv6 controllers used to mark a payment 'success' whenever `$_POST['status']` was present. It now marks a payment 'success' only when the Razorpay signature (HMAC over order_id|payment_id) checks out. It uses a new `Safegold::verify_payment_signature()` helper that wraps the Razorpay SDK. The PR also locks the order row with `SELECT ... FOR UPDATE` inside the existing transaction. If the order is already recorded as paid, the callback writes nothing to the payment tables, logs a line to a daily 'save-payment-ignored' file, and returns a message based on that request's own signature result.
+  Files Modified: application/modules/mobile_app/controllers/apiv2/InvestmentsSafeGold.php, application/modules/mobile_app/controllers/apiv6/InvestmentsSafeGold.php, application/third_party/safegold/libraries/Safegold.php
+  High-Level Impact: This closes a gap where anyone could forge a callback and get a SafeGold payment recorded as successful. It also fixes genuine Razorpay payments, which carry no 'status' field and were being recorded as 'failed'; they will now be recorded as 'success'. After an order is paid, repeated or forged callbacks no longer add duplicate rows to tbl_payment_transactions. The new per-order row lock serializes concurrent callbacks for the same order. Its cost depends on razorpay_order_id being indexed and the table using a transactional storage engine.
+  Potential Review Focus: 1) The signature check is skipped for `payment.failed` (error-shaped) payloads and for missing or non-string signatures, so those always resolve to 'failed'. 2) The idempotency guard runs inside trans_begin, and the early-exit path rolls back before writing the log and returning. 3) Replays of an already-paid order still return 'Payment Success' when the replayed request is validly signed. 4) The apiv2 and apiv6 edits should stay identical.
+
+Code Flow Diagram
+-----------------
+This is how the SafeGold payment callback now decides the payment status and guards against duplicate writes once an order is paid.
+
+```mermaid
+flowchart TD
+    A[Razorpay Checkout callback] --> B[Resolve order_id / payment_id]
+    B --> C{Order found?}
+    C -->|No| D[Transaction not found]
+    C -->|Yes| E{Error payload or no signature?}
+    E -->|Yes| F[status = failed]
+    E -->|No| G[Safegold verify_payment_signature]
+    G -->|Valid| H[status = success]
+    G -->|Invalid| F
+    F --> I[Begin transaction + SELECT FOR UPDATE]
+    H --> I
+    I --> J{Order already success?}
+    J -->|Yes| K[Rollback, log ignored callback, respond]
+    J -->|No| L[Insert tbl_payment_transactions + update tbl_safegold_transaction]
+```
+
+Relevant code: application/modules/mobile_app/controllers/apiv2/InvestmentsSafeGold.php, application/modules/mobile_app/controllers/apiv6/InvestmentsSafeGold.php, application/third_party/safegold/libraries/Safegold.php
+
+Critical: 0
+High: 0
+Medium: 0
+Low: 0
+Suggestion: 0
+
+Total Findings: 0
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: The fix is a payment-integrity change to a single callback endpoint: verify the payment gateway's signature, then make repeated callbacks safe. It involves an external integration, rules about the payment's status, and concurrency, but the change is limited to one flow.
+Factors:
+  - Integration with Razorpay's signature scheme, which requires the same key secret that was used to create the order
+  - Changes how money records are written to tbl_payment_transactions and tbl_safegold_transaction; real payments move from 'failed' to 'success'
+  - Idempotency and concurrency: duplicate or concurrent callbacks must not create duplicate success rows
+  - Several callback shapes must be handled: success handler, payment.failed, missing signature, forged signature, unknown order
+  - The same method exists in two API versions (apiv2 and apiv6) and both must stay in sync
+
+Fix Quality
+Level: GOOD
+Summary: The implementation matches the approved plan. It uses the SDK's own signature check instead of hand-rolled HMAC code, closes the forged-success hole, and adds a sound lock-and-check guard against duplicate success rows. The main gaps are the lack of automated tests and more copy-pasted logic across the two controllers.
+Strengths:
+  - Uses the Razorpay SDK's `verifyPaymentSignature` with the same key and secret that create the order, so secret mismatches are unlikely and timing-safe comparison is handled by the SDK
+  - Restricts verification to non-error, non-empty, string signatures, so an array-injected signature cannot reach the HMAC code
+  - Removes the early `$msg` assignments, so the response message always matches the recorded `payment_status`
+  - `SELECT ... FOR UPDATE` inside the existing transaction, with an explicit rollback on the early-exit path, stops two concurrent callbacks from both writing success rows
+  - Ignored callbacks are still logged; the log is JSON-encoded with JSON_HEX_TAG, so attacker-supplied IDs cannot inject PHP tags into the .php log file
+  - Keeps the existing record-everything behavior: failed or forged attempts are still stored as 'failed' for audit
+Areas for Improvement:
+  - Add automated tests for valid, invalid, missing and error-shaped signatures, and for the already-paid replay path; at present only manual staging checks are described
+  - About 30 lines of signature and idempotency logic are duplicated across apiv2 and apiv6; moving the lock-and-check into the SafeGold library or a shared model method would stop the two copies from drifting apart
+  - The result of the `FOR UPDATE` query is used directly with `->row_array()`; if the query returns FALSE (for example on a lock-wait timeout with db_debug off), this causes a fatal error instead of a controlled rollback and error response
+
+Database Recommendations
+------------------------
+[MEDIUM] INDEX_CHECK
+    Table: tbl_safegold_transaction
+    Columns: razorpay_order_id
+    Recommendation: Before deploying, check whether tbl_safegold_transaction.razorpay_order_id has an index, ideally a unique one.
+    Reason: The PR adds `SELECT payment_status ... WHERE razorpay_order_id = ? FOR UPDATE`. Without an index, InnoDB scans the table and locks every row it scans, so concurrent callbacks for different orders would block each other.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] PRODUCTION_DB_VERIFICATION
+    Table: tbl_safegold_transaction
+    Recommendation: Check that tbl_safegold_transaction and tbl_payment_transactions use a transactional engine such as InnoDB.
+    Reason: The duplicate-success guard depends on `FOR UPDATE` row locks and trans_begin/trans_rollback. On a non-transactional engine such as MyISAM, these do nothing, and concurrent callbacks could both write success rows.
+    Action: Cross-check the actual database before release.
+
+[LOW] CONSTRAINT_CHECK
+    Table: tbl_safegold_transaction
+    Columns: razorpay_order_id
+    Recommendation: Check that razorpay_order_id is unique per row in tbl_safegold_transaction.
+    Reason: The guard reads only the first matching row with `row_array()`, and the later update applies to every row with that order id. Duplicate order ids would make the paid-check unreliable.
+    Action: Cross-check the actual database before release.
+
+[LOW] COLUMN_TYPE_CHECK
+    Table: tbl_safegold_transaction
+    Columns: payment_status
+    Recommendation: Check that payment_status stores the exact lowercase string 'success' and has no padding or collation surprises.
+    Reason: The guard uses a strict PHP comparison, `$locked['payment_status'] === 'success'`. A differently stored value would bypass the guard and allow duplicate success rows.
+    Action: Cross-check the actual database before release.
+
+Business Context Review
+-----------------------
+Status: COMPLETED
+
+Requirements: 7 identified, 7 covered, 0 partially covered
+Scenarios: 7 identified, 7 covered, 0 missing
+Business Rules: 5 identified, 5 satisfied, 0 violated
+
+Total Business Findings: 0
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Branch comparison mode: this review is not published to GitHub -- there is no pull request to attach it to.
+EXIT=0 TOOK=189s

@@ -1,0 +1,6 @@
+2026-10-14 06:55:01 [ERROR] Command exited with status 128: git diff onestackcbs...sg_cl_ccavenue_billdesk_settlement_private
+stderr: fatal: not a git repository: /mnt/c/xampp/htdocs/oneStack-worktrees/sg_cl_ccavenue_billdesk_settlement_private/C:/xampp/htdocs/oneStackLocal/.git/worktrees/sg_cl_ccavenue_billdesk_settlement_private
+Error: Command exited with status 128: git diff onestackcbs...sg_cl_ccavenue_billdesk_settlement_private
+stderr: fatal: not a git repository: /mnt/c/xampp/htdocs/oneStack-worktrees/sg_cl_ccavenue_billdesk_settlement_private/C:/xampp/htdocs/oneStackLocal/.git/worktrees/sg_cl_ccavenue_billdesk_settlement_private
+Comparing branches: 'sg_cl_ccavenue_billdesk_settlement_private' -> 'onestackcbs'...
+EXIT=1 TOOK=0s

@@ -1,0 +1,11 @@
+[
+  {
+    "file": "application/controllers/Auth.php",
+    "line": 957,
+    "severity": "HIGH",
+    "confidence": 0.86,
+    "category": "Reliability",
+    "title": "Temporary debug write on the public login page targets the production base branch",
+    "comment": "This commit adds a writeLogRaw() call (with folder creation) on every render of the unauthenticated login page, and its own message states it 'must be reverted before the production PR from this branch.' The PR context here lists Base Branch as onestackcbs, meaning as currently constituted this PR would ship the temporary instrumentation straight to production instead of onestackcbs-dev. Merging this as-is adds unbounded per-request disk I/O to a public, frequently-hit endpoint that was never meant to carry it. Confirm the base branch/target before merge, or drop this commit from the PR entirely."
+  }
+]

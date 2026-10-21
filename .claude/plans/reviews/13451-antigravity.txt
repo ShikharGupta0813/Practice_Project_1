@@ -1,0 +1,124 @@
+2026-09-30 06:34:38 [INFO] Review succeeded on attempt 1/3 with 3 finding(s).
+2026-09-30 06:36:38 [INFO] Business review succeeded on attempt 1/3 with 1 finding(s).
+Fetching metadata for PR #13451...
+Running review with provider 'antigravity'...
+Running Business Context review...
+
+AI Review Summary
+
+Overview:
+  What Changed: This PR primarily implements Stored XSS prevention across DataTables endpoints in CustomerMaster.php by escaping database-sourced values and centralizing link label escaping in renderTableLink(). However, due to merge commits from onestackcbs into a branch targeting onestackcbs-dev, the diff also includes changes across eight other files covering CBS expired KYC cron updates, Aadhaar verification field selections, direct risk profile queries in KYC views, NPCI UPI request mapping fixes, and YesBank VPA error log filtering.
+  Files Modified: application/config/cbs-routes.php, application/modules/cbs/controllers/CbsCron.php, application/modules/cbs/controllers/CustomerProfileManagement.php, application/modules/cbs/views/customer-account-management/npci-merchant-addition.php, application/modules/cbs/views/customer-profile-management/kyc-information.php, application/modules/mobile_app/controllers/customers/CustomerMaster.php, application/modules/mobile_app/controllers/npci-upi/NpciMobileAPIV6.php, application/modules/mobile_app/models/bank_onboarding_form/CompanyMaster_model.php, application/modules/mobile_app/models/pagination/CustomersListModel.php
+  High-Level Impact: Prevents stored cross-site scripting (XSS) on administrative customer, order, ticket, and UPI transaction tables by escaping raw database values prior to rendering. Concurrently, branch divergence introduces an unbatched database update loop in CbsCron.php that presents performance risks, as well as changes to KYC verification workflows.
+  Potential Review Focus: Reviewers should first address the branch divergence: the PR description specifies that only CustomerMaster.php should be touched, but the diff contains eight unrelated files due to merging onestackcbs while targeting onestackcbs-dev. Second, examine updateExpiredKycStatus in CbsCron.php for N+1 update bottlenecks and verify whether Aadhaar-only verified records are omitted from expiry. Finally, verify that DataTables rendering in CustomerMaster preserves intentional line breaks without double-escaping entities.
+
+Code Flow Diagram
+-----------------
+Sanitization and rendering pipeline for DataTables cell data in CustomerMaster.
+
+```mermaid
+flowchart TD
+    A[Database Record] --> B{Cell Target}
+    B -->|Link with Raw Text| C[renderTableLink default escapeLabel=true]
+    B -->|Link with Intentional HTML| D[html_escape DB Value]
+    D --> E[chunk_split with BR tag]
+    E --> F[renderTableLink escapeLabel=false]
+    B -->|Direct Cell Markup| G[html_escape DB Value]
+    C --> H[html_escape Label]
+    H --> I[ActionUIComponent renderViewButton]
+    F --> I
+    G --> J[DataTables Output Row]
+    I --> J
+```
+
+Relevant code: application/modules/mobile_app/controllers/customers/CustomerMaster.php
+
+Critical: 0
+High: 2
+Medium: 0
+Low: 1
+Suggestion: 0
+
+Total Findings: 3
+
+[HIGH] application/modules/cbs/controllers/CbsCron.php:2541 - Incomplete KYC Expiry Filter Misses Aadhaar-Only Customers
+    category=Correctness confidence=0.90
+    The query checks only verify_panname to identify verified customers whose risk profiles have expired, omitting the newly introduced is_aadhar_no_verified flag. Customers verified solely through Aadhaar will never be selected when their risk profile expires, leaving their accounts in an expired yet verified state. This leads to regulatory non-compliance by failing to enforce re-KYC requirements. Update the query conditions to include customers where is_aadhar_no_verified = 1.
+
+[HIGH] application/modules/cbs/controllers/CbsCron.php:2548 - Unbatched Database Updates Inside Loop
+    category=Performance confidence=0.92
+    The method retrieves all expired customer IDs into memory with result_array() and iterates over them with individual update queries. Running sequential single-row updates during a cron run creates an N+1 write bottleneck and risks memory exhaustion. In production, this can lock the customer table and trigger script execution timeouts on large customer volumes. Refactor the logic to use a single joined UPDATE statement or execute updates in chunked batches.
+
+[LOW] application/modules/cbs/views/customer-profile-management/kyc-information.php:265 - Direct Database Query in View Template
+    category=Architecture confidence=0.85
+    The view template executes a database query directly using CommonModel->select() to inspect the customer risk profile. Placing data access and business verification logic in presentation templates violates MVC separation of concerns. This makes the view difficult to test and maintain, and can lead to unexpected database queries during rendering. Move this database retrieval into the controller or a service model and pass the evaluated status flag into the view.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: The PR addresses Stored XSS vulnerabilities across multiple DataTables endpoints by escaping database values, while also incorporating branch changes involving KYC expiration crons, Aadhaar verification handling, and UPI logging.
+Factors:
+  - Sanitizing data across six distinct DataTables listing endpoints (customers, orders, UPI 1.0, UPI 2.0, tickets, bank customers) without breaking pre-formatted HTML elements such as line breaks and badges
+  - Centrally escaping link labels in renderTableLink while avoiding double-escaping on previously sanitized fields
+  - Handling background cron scheduling and risk profile verification logic affecting customer KYC lifecycle states
+  - Managing branch divergence where commits from onestackcbs conflict with the intended PR scope targeting onestackcbs-dev
+
+Fix Quality
+Level: NEEDS_IMPROVEMENT
+Summary: The core Stored XSS sanitization in CustomerMaster.php is well-implemented and preserves necessary HTML formatting, but the PR suffers from severe branch divergence that pulls in eight unrelated files containing performance and correctness defects.
+Strengths:
+  - CustomerMaster.php centralizes label escaping inside renderTableLink with an explicit opt-out parameter, cleanly preventing Stored XSS across DataTables endpoints
+  - Redundant htmlspecialchars calls were safely eliminated to avoid double-escaping entities in customer names and emails
+  - Preserved intentional line breaks in UPI transaction IDs by escaping values prior to chunk_split and opting out of secondary escaping
+Areas for Improvement:
+  - Rebase against the base branch onestackcbs-dev to remove eight unrelated files merged from onestackcbs that contradict the single-file scope stated in the PR description
+  - Refactor updateExpiredKycStatus in CbsCron.php to avoid an unbatched N+1 UPDATE loop over all expired customer records
+  - Update the customer query in CbsCron.php to include customers verified via is_aadhar_no_verified so Aadhaar-only KYC records expire correctly
+  - Extract direct CommonModel database queries out of the kyc-information.php view template into the controller or service layer
+  - Add automated tests verifying HTML entity escaping in DataTables responses and coverage for the expired KYC status cron job
+
+Database Recommendations
+------------------------
+[MEDIUM] INDEX_CHECK
+    Table: tbl_customer_risk_profile
+    Columns: is_active, risk_expiry_date, customer_id, bank_id
+    Recommendation: Verify whether an index exists on tbl_customer_risk_profile covering (is_active, risk_expiry_date) or composite join keys (customer_id, bank_id).
+    Reason: The new cron query in updateExpiredKycStatus filters tbl_customer_risk_profile by is_active and risk_expiry_date while joining on customer_id and bank_id.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] INDEX_CHECK
+    Table: tbl_customers
+    Columns: id, company_id, verify_panname
+    Recommendation: Verify whether tbl_customers has appropriate index coverage on (id, company_id) and verify_panname.
+    Reason: The updateExpiredKycStatus cron joins tbl_customers on id and company_id while filtering on verify_panname values.
+    Action: Cross-check the actual database before release.
+
+[LOW] INDEX_CHECK
+    Table: tbl_customer_risk_profile
+    Columns: customer_id, bank_id, is_active
+    Recommendation: Verify whether an index exists on tbl_customer_risk_profile for (customer_id, bank_id, is_active).
+    Reason: The kyc-information view template runs a direct lookup on tbl_customer_risk_profile filtering by customer_id, bank_id, and is_active.
+    Action: Cross-check the actual database before release.
+
+Business Context Review
+-----------------------
+Status: COMPLETED
+
+Requirements: 5 identified, 4 covered, 1 partially covered
+Scenarios: 6 identified, 5 covered, 1 missing
+Business Rules: 4 identified, 3 satisfied, 1 violated
+
+Total Business Findings: 1
+
+[HIGH] application/config/cbs-routes.php:1492 - PR diff includes 8 extraneous files violating single-file scope constraint
+    category=BUSINESS_RULE confidence=0.95
+    The Business Context explicitly constrains the task scope to CustomerMaster.php only, but this PR includes 8 unrelated files across CBS, KYC, and NPCI modules. This divergence occurred because the PR targets onestackcbs-dev while the branch originated from onestackcbs, pulling in unrelated merge commits. Merging these out-of-scope files risks deploying unverified changes or causing regressions in sensitive banking and KYC subsystems. Retarget the pull request to onestackcbs or rebase onto onestackcbs-dev so that only CustomerMaster.php is modified.
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Dry run: skipping publish step. No changes were made to GitHub.
+EXIT=0 TOOK=263s

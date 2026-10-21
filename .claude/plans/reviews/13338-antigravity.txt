@@ -1,0 +1,57 @@
+2026-09-24 09:27:40 [INFO] Review succeeded on attempt 1/3 with 0 finding(s).
+2026-09-24 09:28:54 [INFO] Business review succeeded on attempt 1/3 with 0 finding(s).
+Fetching metadata for PR #13338...
+Running review with provider 'antigravity'...
+Running Business Context review...
+
+AI Review Summary
+
+Overview:
+  What Changed: Enforced server-side authorization gates and existing-login safety guards in CompanyMaster and PartnerMaster for giveDashboardAccess(), stopped trusting client-supplied company_id in CompanyMaster, and removed the unused fail-open route admin/give-dashboard-access.
+  Files Modified: application/config/routes.php, application/modules/mobile_app/controllers/bank_onboarding_form/CompanyMaster.php, application/modules/mobile_app/controllers/bank_onboarding_form/PartnerMaster.php
+  High-Level Impact: Eliminates critical privilege escalation and account takeover/deletion vulnerabilities by ensuring only OneStack staff (sessions without company_id or partner_id) can grant or revoke dashboard access, and prevents overwriting or deleting superadmins, role-group staff, or cross-tenant accounts.
+  Potential Review Focus: Verify that legitimate dashboard access role changes (e.g. updating roles for existing bank/partner contact logins) and contact deletions under 'No Access' continue to function correctly while properly refusing non-dashboard or cross-tenant accounts.
+
+Critical: 0
+High: 0
+Medium: 0
+Low: 0
+Suggestion: 0
+
+Total Findings: 0
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: The problem requires securing multi-tenant access control and account lifecycle operations across bank and partner domains without breaking legitimate dashboard role modifications or deletions for existing contacts.
+Factors:
+  - Multi-tenant authorization logic requiring validation against session states (distinguishing OneStack staff from bank and partner users).
+  - Nuanced user identity guards to distinguish tenant-scoped dashboard accounts from superadmins and role-group staff in tbl_users to prevent takeover or deletion.
+  - Coordination across multiple controller actions and legacy route configurations to eliminate fail-open access paths.
+
+Fix Quality
+Level: STRONG
+Summary: The fix cleanly addresses the root cause of the authorization and account takeover vulnerabilities, adheres directly to the business requirements, and is supported by a comprehensive test matrix covering all edge cases.
+Strengths:
+  - Server-side authorization checks accurately match the UI permissions, returning appropriate JSON responses for AJAX clients.
+  - The existing-login guard executes before password generation and email dispatch, protecting against accidental email leakage and unauthorized mutations.
+  - Avoids redundant database queries by selecting required user fields up front and reusing the user model lookup result downstream.
+  - Derives company_id directly from the contact record rather than trusting POST input.
+  - Safely removes the unused, fail-open route without regressions.
+Areas for Improvement:
+  - Consider extracting the shared authorization gate and existing-login validation logic into a shared service or trait to prevent duplication between CompanyMaster and PartnerMaster.
+
+Business Context Review
+-----------------------
+Status: COMPLETED
+
+Requirements: 6 identified, 6 covered, 0 partially covered
+Scenarios: 10 identified, 10 covered, 0 missing
+Business Rules: 5 identified, 5 satisfied, 0 violated
+
+Total Business Findings: 0
+
+Dry run: skipping publish step. No changes were made to GitHub.
+EXIT=0 TOOK=200s

@@ -1,0 +1,6 @@
+2026-10-14 07:48:32 [ERROR] Command exited with status 128: git diff onestackcbs...sg_cl_status_allowlists
+stderr: fatal: not a git repository: /mnt/c/xampp/htdocs/oneStack-worktrees/sg_cl_status_allowlists/C:/xampp/htdocs/oneStackLocal/.git/worktrees/sg_cl_status_allowlists
+Error: Command exited with status 128: git diff onestackcbs...sg_cl_status_allowlists
+stderr: fatal: not a git repository: /mnt/c/xampp/htdocs/oneStack-worktrees/sg_cl_status_allowlists/C:/xampp/htdocs/oneStackLocal/.git/worktrees/sg_cl_status_allowlists
+Comparing branches: 'sg_cl_status_allowlists' -> 'onestackcbs'...
+EXIT=1 TOOK=1s

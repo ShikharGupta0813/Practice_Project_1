@@ -1,0 +1,9 @@
+application/views/admin/_pg_templates/footer.php
+application/views/admin/_templates/footer.php
+application/views/admin/company-master/view.php
+application/views/admin/customers/onboarding-journey/view.php
+application/views/admin/dashboard/index.php
+application/views/admin/reports/bank-report-index.php
+assets/custom/js/application.js
+assets/custom/js/pages/coming_soon.js
+assets/custom/js/pages/dashboard.js

@@ -1,0 +1,121 @@
+2026-09-29 09:41:44 [INFO] Review succeeded on attempt 1/3 with 3 finding(s).
+Comparing branches: 'pc_android_ios' -> 'onestackcbs'...
+Running review with provider 'claude'...
+
+AI Review Summary
+
+Overview:
+  What Changed: The main change is a new iOS minimum version field on the admin App Link screen, next to the renamed Latest/Maximum field. Saving now deactivates every active iOS row and inserts fresh max/min rows (flagged by min_version) inside a transaction, carrying forward the build links from the previous row. The mobile get-versions API detects the device type from several headers without regard to case and picks min/max through a new helper: iOS uses the min_version flag and Android uses version_compare. The compare also brings in merged work: the legacy admin Users::addUser() is commented out, UPI QR SMS/WhatsApp notifications are disabled, a filter for an active P2M seller is added to two CompanyMaster account queries, and the remaining Gupshup WhatsApp template fields are now rawurlencoded.
+  Files Modified: application/controllers/admin/Users.php, application/libraries/common/CommonFunctions.php, application/modules/cbs/controllers/BankManagement.php, application/modules/cbs/models/CompanyMaster_model.php, application/modules/cbs/views/bank-management/app-link.php, application/modules/mobile_app/controllers/apiv6/Profile.php, application/modules/mobile_app/controllers/communication/CommunicationWhatsapp.php, application/modules/mobile_app/models/bank_onboarding_form/CompanyMaster_model.php
+  High-Level Impact: The response of the mobile version-check API changes: data.ios is dropped, Android min can now differ from max, and device detection is broader. iOS version storage moves from updating one row in place to deactivating and re-inserting rows. Customer-facing UPI QR notifications stop for all banks. Account-listing queries in both CompanyMaster models now return fewer rows (only accounts with an active P2M seller VPA).
+  Potential Review Focus: 1) Whether mobile clients still read data.ios from the version API. 2) How Android min is chosen when several builds are flagged min_version=1. 3) Whether DatabaseFactory::getInstance('default') really is the connection CommonModel writes through, so the transaction covers the deactivate/insert. 4) Whether turning off UPI QR notifications is meant to be permanent and to apply to every bank. 5) How the new P2M/seller_status subquery combines with the existing P2PM clause.
+
+Code Flow Diagram
+-----------------
+The iOS min/max save flow in the admin screen and how the version API then picks the rows back up.
+
+```mermaid
+flowchart TD
+    A[Admin saves iOS min and max] --> B{Valid format and min <= max?}
+    B -->|No| C[Return error]
+    B -->|Yes| D[Read current row metadata]
+    D --> E[Begin transaction]
+    E --> F[Deactivate all active iOS rows]
+    F --> G{min == max?}
+    G -->|Yes| H[Insert one row flagged min_version=1]
+    G -->|No| I[Insert max row min_version=0 and min row min_version=1]
+    H --> J[Commit]
+    I --> J
+    J --> K[Version API picks iOS rows by min_version flag]
+```
+
+Relevant code: application/modules/cbs/controllers/BankManagement.php, application/modules/mobile_app/controllers/apiv6/Profile.php
+
+Critical: 0
+High: 1
+Medium: 2
+Low: 0
+Suggestion: 0
+
+Total Findings: 3
+
+[HIGH] application/modules/mobile_app/controllers/apiv6/Profile.php:12004 - data.ios removed from version API response; iOS/Android lookups computed but unused
+    category=API confidence=0.93
+    The base branch returned `data.ios` with `min`/`max`, and this diff deletes that block, even though the commit history says 'restore data.ios'. `$iosVersionDetails` and `$androidVersionDetails` are computed but never used. Any installed client that reads `data.ios` will now get a missing key, which can break its force-update checks, and every request still pays for two extra unbounded `result_array()` queries. Either put `data.ios` back using `$iosVersionDetails`, or remove both unused lookups and confirm that no client depends on the field.
+
+[MEDIUM] application/modules/mobile_app/controllers/apiv6/Profile.php:12123 - Android min picks the lowest flagged build, so the minimum can never be raised
+    category=Correctness confidence=0.80
+    Before this change Android returned min == max. Now min is the numerically lowest active build with min_version=1, and flags are set per build and never cleared. Once an old build is flagged, flagging a newer build as the minimum has no effect: the API keeps advertising the old minimum and silently stops forcing updates. Pick the highest (or most recently flagged) min_version build instead, and cap it at max.
+
+[MEDIUM] application/libraries/common/CommonFunctions.php:1655 - UPI QR SMS and WhatsApp notifications disabled for every bank with no toggle
+    category=Reliability confidence=0.80
+    Both `sendUpiQrGenerationSms()` and `sendWhatsappMessage()` are commented out, so no merchant is told when a non-UPI-2.0 QR is generated, and the QR PDF is no longer delivered over WhatsApp. `$customer_params` is still built and then thrown away. If the goal is to pause these notifications, a per-company or config flag would make the change deliberate and reversible without a code deploy; confirm this is not meant to be temporary.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: The core fix involves version semantics (min vs max), how the admin write path and the mobile read path interact, reads on a replica straight after writes, and backward compatibility of the API contract for installed apps. The merged extras are each small.
+Factors:
+  - Rows are identified by a flag rather than by ordering, and the admin writer and API reader have to agree on it
+  - Deactivate-and-insert pattern with a transaction and replica lag
+  - Android and iOS use different version-selection semantics
+  - Backward compatibility of the mobile API response for already-installed apps
+  - Unrelated changes (notifications, SQL filters, encoding) bundled into the same compare
+
+Fix Quality
+Level: NEEDS_IMPROVEMENT
+Summary: The iOS save and read logic is careful and well commented. However, the API change drops the data.ios field that clients consumed, leaves two unused queries, and changes Android min semantics in a way that can stop force-updates. The PR also bundles unrelated behaviour changes.
+Strengths:
+  - Save validates the version format and min <= max, using version_compare consistently
+  - Deactivate and insert run inside a transaction, with a failure response driven by trans_status
+  - Carries apk_file, bitly_link and siteload_bitly_link forward so the redirect fallback keeps working
+  - Device-type header detection is case-insensitive and falls back to request_headers()
+Areas for Improvement:
+  - Restore data.ios, or delete the unused $iosVersionDetails/$androidVersionDetails lookups
+  - Choose Android min as the highest flagged build, capped at max
+  - Put notification disabling behind configuration instead of commenting code out
+  - Split the unrelated merged changes out of the iOS version fix, as the last commit message intends
+  - Add regression coverage for the min == max, min < max and legacy-row cases
+
+Database Recommendations
+------------------------
+[MEDIUM] INDEX_CHECK
+    Table: UPI_ID (DbTable::UPI_ID)
+    Columns: vpa_type, seller_status, account_id, customer_id
+    Recommendation: Check whether an index covers vpa_type + seller_status (+ account_id / customer_id), and run EXPLAIN on both CompanyMaster account-list queries on production-sized data.
+    Reason: Both CompanyMaster models add a second IN subquery on the UPI table, filtered by vpa_type='P2M' AND seller_status='ACTIVE'.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] PRODUCTION_DB_VERIFICATION
+    Table: UPI_ID (DbTable::UPI_ID)
+    Columns: seller_status
+    Recommendation: Confirm that seller_status stores exactly 'ACTIVE' (case and spelling) for active P2M merchants in production.
+    Reason: Accounts are now excluded unless this literal matches; a mismatch would silently empty the account list.
+    Action: Cross-check the actual database before release.
+
+[LOW] INDEX_CHECK
+    Table: COMPANY_APK_FILES (DbTable::COMPANY_APK_FILES)
+    Columns: company_id, device_type, status, build_status, min_version
+    Recommendation: Check whether an index exists on company_id + device_type + status for the version lookups and the bulk deactivate UPDATE.
+    Reason: The version API now runs three filtered queries per request, and the iOS save runs a multi-row UPDATE on these columns.
+    Action: Cross-check the actual database before release.
+
+[LOW] COLUMN_TYPE_CHECK
+    Table: COMPANY_APK_FILES (DbTable::COMPANY_APK_FILES)
+    Columns: min_version
+    Recommendation: Check that min_version is NOT NULL with default 0 for existing iOS rows, and look at how existing active iOS rows are currently flagged.
+    Reason: Admin reads filter on min_version = 0 / 1 exactly; legacy rows with NULL would match neither until the next save.
+    Action: Cross-check the actual database before release.
+
+Business Context Review
+-----------------------
+Status: NOT PROVIDED
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Branch comparison mode: this review is not published to GitHub -- there is no pull request to attach it to.
+EXIT=0 TOOK=87s

@@ -1,0 +1,75 @@
+2026-09-29 10:25:58 [WARNING] Attempt 1/3: provider 'antigravity' returned invalid JSON: Provider returned an empty response.
+2026-09-29 10:26:24 [WARNING] Attempt 2/3: provider 'antigravity' returned invalid JSON: Provider returned an empty response.
+2026-09-29 10:27:38 [INFO] Review succeeded on attempt 3/3 with 0 finding(s).
+Fetching metadata for PR #13424...
+Running review with provider 'antigravity'...
+
+AI Review Summary
+
+Overview:
+  What Changed: Migrated YES Bank YPP Seller configuration retrieval to the new vendor module tables by defining the YPP_SELLER_MODULE constant and updating getBankKeysYesbankKYC() across both CommonModel implementations to read from the new vendor system with a legacy table fallback.
+  Files Modified: application/config/constants.php, application/models/common/CommonModel.php, application/modules/mobile_app/models/common/CommonModel.php
+  High-Level Impact: Enables seamless, bank-by-bank migration of YES Bank YPP seller encryption keys to the centralized vendor configuration system without downtime. Existing API consumers and response contracts remain unaffected due to strict backward-compatible fallback.
+  Potential Review Focus: Verify the completeness check condition (ensuring all three configuration keys and non-empty encryption key are validated before bypassing fallback) and ensure both CommonModel implementations stay perfectly synchronized.
+
+Code Flow Diagram
+-----------------
+Decision flow for resolving YES Bank YPP Seller keys between new vendor configuration tables and the legacy fallback.
+
+```mermaid
+flowchart TD
+    A["Call getBankKeysYesbankKYC"] --> B["Fetch YPP Seller Module Config"]
+    B --> C{"Is Config Complete?"}
+    C -->|Yes| D["Query company_master for partner_key"]
+    D --> E["Return New Vendor Configuration"]
+    C -->|No| F["Query Legacy Vendor Tables"]
+    F --> G["Return Legacy Configuration"]
+```
+
+Relevant code: application/models/common/CommonModel.php, application/modules/mobile_app/models/common/CommonModel.php
+
+Critical: 0
+High: 0
+Medium: 0
+Low: 0
+Suggestion: 0
+
+Total Findings: 0
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: LOW
+Summary: Straightforward configuration source migration transitioning YES Bank YPP seller keys to the centralized vendor configuration system while maintaining backward compatibility.
+Factors:
+  - Limited scope modifying only 3 files (a constant definition and two mirrored model methods).
+  - Direct mapping of configuration values to the existing return structure with no breaking contract changes.
+  - Clear fallback strategy preserving the legacy database query when new configuration is absent or incomplete.
+
+Fix Quality
+Level: STRONG
+Summary: A robust, backward-compatible implementation that carefully prevents partial configurations from taking effect and maintains consistency across mirrored model files.
+Strengths:
+  - Robust fallback mechanism guarantees zero downtime by retaining the legacy query path until a bank's new configuration is complete.
+  - Strict completeness validation requires all keys (PARTNER_REF_PREFIX, PRODUCTION_TYPE) and a non-empty ENCRYPTION_KEY before switching sources, preventing partial configurations.
+  - Both CommonModel copies (root and mobile_app module) are kept strictly identical to maintain consistency across autoloaders.
+  - The return array shape and field names remain identical, ensuring no regressions for downstream mobile API consumers.
+Areas for Improvement:
+  - Centralizing duplicated logic between application/models/common/CommonModel.php and application/modules/mobile_app/models/common/CommonModel.php into a single shared service would reduce future maintenance overhead.
+  - Adding automated unit or integration tests covering both the new vendor configuration path and legacy fallback path would prevent regressions during bank onboarding.
+
+Database Recommendations
+------------------------
+None identified.
+
+Business Context Review
+-----------------------
+Status: NOT PROVIDED
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Dry run: skipping publish step. No changes were made to GitHub.
+EXIT=0 TOOK=121s

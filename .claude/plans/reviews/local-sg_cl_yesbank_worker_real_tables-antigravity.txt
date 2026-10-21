@@ -1,0 +1,109 @@
+2026-10-15 13:12:11 [INFO] Review succeeded on attempt 1/3 with 0 finding(s).
+2026-10-15 13:12:52 [INFO] Business review succeeded on attempt 1/3 with 0 finding(s).
+Comparing branches: 'sg_cl_yesbank_worker_real_tables' -> 'onestackcbs'...
+Running review with provider 'antigravity'...
+Running Business Context review...
+
+AI Review Summary
+
+Overview:
+  What Changed: Switches Yes Bank settlement reconciliation from temporary test tables (tbl_missing_upi_transaction_test, tbl_dispute_upi_transaction_test, tbl_upi_transaction_master_test) to live production tables (tbl_missing_upi_transaction, tbl_dispute_upi_transaction, tbl_upi_transaction_master) across both YesBankSettlementWorker.php and YesBankSettlementWorkerSuper.php, and re-enables settlement status updates and credit confirmation email dispatch.
+  Files Modified: application/modules/mobile_app/controllers/YesBankSettlementWorker.php, application/modules/mobile_app/controllers/YesBankSettlementWorkerSuper.php
+  High-Level Impact: Reconciliation output will now update live transaction state in tbl_upi_transaction_master to completed, queue missing and dispute records in tables read by downstream operational workflows, and dispatch customer credit confirmation emails upon settlement confirmation.
+  Potential Review Focus: Verify database indexing on tbl_upi_transaction_master to prevent query degradation on large datasets, confirm all required settlement columns exist in production, and monitor initial email dispatch volume upon release.
+
+Code Flow Diagram
+-----------------
+Illustrates the re-enabled reconciliation workflow, including transaction lookup, master table settlement update, email dispatch, and missing/dispute classification.
+
+```mermaid
+flowchart TD
+    A["Fetch Yes Bank Statement"] --> B{"Transaction Matched in Master?"}
+    B -->|Yes| C["Update tbl_upi_transaction_master to completed"]
+    C --> D{"Settlement Mail Sent?"}
+    D -->|No| E["Send Email & Update is_settlement_mail_sent"]
+    D -->|Yes| F["Complete"]
+    E --> F
+    B -->|No| G{"Dispute Reference?"}
+    G -->|Yes| H["Batch Insert tbl_dispute_upi_transaction"]
+    G -->|No| I["Batch Insert tbl_missing_upi_transaction"]
+```
+
+Relevant code: application/modules/mobile_app/controllers/YesBankSettlementWorker.php, application/modules/mobile_app/controllers/YesBankSettlementWorkerSuper.php
+
+Critical: 0
+High: 0
+Medium: 0
+Low: 0
+Suggestion: 0
+
+Total Findings: 0
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: HIGH
+Summary: The PR addresses payment reconciliation affecting core financial settlement state, downstream dispute operations, and customer notifications across large production datasets.
+Factors:
+  - Directly modifies live UPI transaction settlement status to completed and triggers external customer-facing notification emails.
+  - Redirects queries from a frozen 7,457-row test table to a 28M+ row live production table, making execution highly sensitive to query performance and indexing.
+  - Interacts with multi-table downstream operational workflows responsible for missing transaction recovery and dispute resolution.
+
+Fix Quality
+Level: GOOD
+Summary: The PR accurately updates all hardcoded test table references and cleanly uncomments disabled settlement and notification calls without introducing extraneous modifications or regressions.
+Strengths:
+  - Comprehensively updates all test table references and obsolete revert tags across both standard and super settlement workers.
+  - Preserves existing table schema contracts, update conditions, and idempotency checks (such as the settlement email sent flag).
+  - Keeps changes tightly scoped to the business requirement without unnecessary refactoring of surrounding legacy logic.
+Areas for Improvement:
+  - Lacks automated unit or integration tests verifying worker table targets and settlement execution paths.
+  - Per-transaction existence queries executed inside reconciliation loops could be optimized into batch lookups to reduce query volume on production tables.
+
+Database Recommendations
+------------------------
+[HIGH] INDEX_CHECK
+    Table: tbl_upi_transaction_master
+    Columns: settlement_status, upi_transaction_status, receiver_upi_id, upi_transaction_date
+    Recommendation: Verify whether an appropriate composite or covering index exists on tbl_upi_transaction_master for settlement_status, upi_transaction_status, receiver_upi_id, and upi_transaction_date before executing YesBankSettlementWorkerSuper queries in production.
+    Reason: getOneSeller and fill_yesbank_settlement_pending_data filter by settlement_status = 'pending' and join receiver_upi_id against tbl_upi_transaction_master, which contains over 28 million records.
+    Action: Cross-check the actual database before release.
+
+[HIGH] COLUMN_EXISTENCE_CHECK
+    Table: tbl_upi_transaction_master
+    Columns: settlement_status, settlement_utr_no, settlement_date, settlement_bank_name, settlement_account_no, settlement_bank_ifsc_code, is_settlement_mail_sent
+    Recommendation: Verify that settlement_status, settlement_utr_no, settlement_date, settlement_bank_name, settlement_account_no, settlement_bank_ifsc_code, and is_settlement_mail_sent exist in production tbl_upi_transaction_master.
+    Reason: The PR switches settlement updates and mail status tracking from tbl_upi_transaction_master_test to tbl_upi_transaction_master; missing columns would cause update queries to fail silently under error suppression.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] INDEX_CHECK
+    Table: tbl_missing_upi_transaction
+    Columns: upi_transaction_id
+    Recommendation: Verify that an index exists on upi_transaction_id in tbl_missing_upi_transaction.
+    Reason: YesBankSettlementWorker executes select queries filtered by upi_transaction_id in tbl_missing_upi_transaction in a loop to check whether transactions are already recorded.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] INDEX_CHECK
+    Table: tbl_upi_transaction_master
+    Columns: upi_transaction_id
+    Recommendation: Verify that an index exists on upi_transaction_id in tbl_upi_transaction_master.
+    Reason: YesBankSettlementWorkerSuper performs lookup checks and both workers execute email flag updates using upi_transaction_id as a key against tbl_upi_transaction_master.
+    Action: Cross-check the actual database before release.
+
+Business Context Review
+-----------------------
+Status: COMPLETED
+
+Requirements: 5 identified, 5 covered, 0 partially covered
+Scenarios: 5 identified, 5 covered, 0 missing
+Business Rules: 4 identified, 4 satisfied, 0 violated
+
+Total Business Findings: 0
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Branch comparison mode: this review is not published to GitHub -- there is no pull request to attach it to.
+EXIT=0 TOOK=237s

@@ -1,0 +1,8 @@
+2026-09-30 05:46:48 [WARNING] Business Context source '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1210672199639636.md' failed to load: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1210672199639636.md' must start with 'file:', 'asana:', or 'notion:'.
+2026-09-30 05:46:48 [ERROR] Business Context error: All Business Context sources failed to load: /mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1210672199639636.md: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1210672199639636.md' must start with 'file:', 'asana:', or 'notion:'.
+2026-09-30 05:46:48 [ERROR] Command exited with status 128: git diff onestackcbs...sg_cl_bank_staff_user_sync
+stderr: fatal: not a git repository: /mnt/c/xampp/htdocs/oneStack_bankstaff/C:/xampp/htdocs/oneStackLocal/.git/worktrees/oneStack_bankstaff
+Error: Command exited with status 128: git diff onestackcbs...sg_cl_bank_staff_user_sync
+stderr: fatal: not a git repository: /mnt/c/xampp/htdocs/oneStack_bankstaff/C:/xampp/htdocs/oneStackLocal/.git/worktrees/oneStack_bankstaff
+Comparing branches: 'sg_cl_bank_staff_user_sync' -> 'onestackcbs'...
+EXIT=1 TOOK=1s

@@ -1,0 +1,70 @@
+2026-09-24 07:46:42 [WARNING] Attempt 1/3: provider 'claude' returned invalid JSON: Response is not valid JSON: Expecting value: line 1 column 1 (char 0)
+2026-09-24 07:50:31 [INFO] Review succeeded on attempt 2/3 with 2 finding(s).
+2026-09-24 07:51:28 [INFO] Business review succeeded on attempt 1/3 with 1 finding(s).
+Fetching metadata for PR #13335...
+Running review with provider 'claude'...
+Running Business Context review...
+
+AI Review Summary
+
+Overview:
+  What Changed: Adds session-based bank (company_id) scoping to three dashboard chart endpoints (new registered customers, transacting customers, app-login customers) in DashboardChartsController.php so bank users can no longer override their own bank via POST parameters, mirroring a pattern already used by 11 other chart endpoints in the same file. The PR also bundles an unrelated change: a new resetFailedP2pmTerminalUpiGenerationQueue() method (added identically to two CompanyMaster_model.php files) that resets stale P2PM terminal UPI queue entries back to pending for retry, invoked from AutomatedAPI.php's queueYesbankTerminalUpiInline(), together with removal of a status filter in get_remainingP2pmTerminalUpiGenerationAccount() intended to stop duplicate queueing.
+  Files Modified: application/modules/cbs/models/CompanyMaster_model.php, application/modules/mobile_app/controllers/AutomatedAPI.php, application/modules/mobile_app/controllers/dashboard/DashboardChartsController.php, application/modules/mobile_app/models/bank_onboarding_form/CompanyMaster_model.php
+  High-Level Impact: The dashboard change closes a multi-tenant data-isolation gap (bank staff could previously view other banks' customer counts by editing the request) with a minimal, low-risk, additive diff that matches an existing convention. The bundled P2PM queue changes affect a workflow that makes real calls to a bank's terminal UPI generation flow and alter retry/duplicate-prevention state; a granularity mismatch in the new reset logic risks either permanently stuck accounts or unnecessary repeated processing for others.
+  Potential Review Focus: Confirm the three session-filter additions in DashboardChartsController.php produce identical before/after JSON for OneStack users and correctly pin bank users regardless of the POSTed bank value, per the manual test steps supplied. Separately, scrutinize whether the customer_id-based exclusion in resetFailedP2pmTerminalUpiGenerationQueue correctly matches the account_id-based bookkeeping used by its sibling query, and confirm the P2PM queue change was deliberately meant to ship in this same PR.
+
+Critical: 0
+High: 1
+Medium: 1
+Low: 0
+Suggestion: 0
+
+Total Findings: 2
+
+[HIGH] application/modules/cbs/models/CompanyMaster_model.php:654 - Queue reset checks success at customer granularity while the workflow is account-scoped
+    category=Correctness confidence=0.82
+    resetFailedP2pmTerminalUpiGenerationQueue() excludes rows from reset via `customer_id NOT IN (SELECT customer_id FROM UPI_ID WHERE vpa_type='P2PM')`, but the sibling function in this same file (get_remainingP2pmTerminalUpiGenerationAccount, lines 611-621) tracks this same workflow by account_id, and UPI_ID has an account_id column available. A customer with multiple accounts where only one succeeded will have retries suppressed for their other genuinely-failed accounts, while a customer with zero successes will have all rows reset indefinitely even for permanently-ineligible accounts. Since get_remainingP2pmTerminalUpiGenerationAccount now excludes any account with an existing queue row regardless of status, an incorrectly-unreset entry can leave that account permanently without a P2PM terminal UPI generated.
+
+[MEDIUM] application/modules/mobile_app/controllers/AutomatedAPI.php:2369 - Unrelated, undocumented P2PM queue change bundled into a security-focused PR
+    category=Maintainability confidence=0.87
+    The PR title and description describe only the dashboard chart session-scoping fix, but the diff also rewrites P2PM terminal UPI queue-generation logic across two model files and this controller (a duplicate-queueing fix per the 'queue duplicate issue' commit), with no mention or test evidence for it in the PR description. Bundling an unrelated, production-affecting change that triggers external bank-facing processing into a PR explicitly flagged for careful security review risks it going unverified by reviewers focused on the access-control files. Recommend splitting the P2PM queue-duplicate fix into its own PR with its own description and rationale.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: The stated dashboard problem (add session-based bank scoping to 3 of 14 chart endpoints, following a pattern already used by 11 sibling endpoints) is narrow and low complexity on its own, but the PR as submitted also bundles a distinct external-system reliability problem around P2PM terminal UPI queue duplication, which involves retry/state semantics across two duplicated model files and an automated controller.
+Factors:
+  - 3 endpoints require an additive session filter following a pattern already established by 11 other endpoints in the same file
+  - Bundled P2PM UPI queue changes involve bank-facing side effects, retry/duplicate-prevention state, and two duplicate model implementations that must stay logically consistent
+  - Multi-tenant access-control change requires reasoning about session-derived vs. POST-supplied values across bank vs. OneStack users, though the rule itself is simple
+
+Fix Quality
+Level: NEEDS_IMPROVEMENT
+Summary: The dashboard session-scoping change itself is correct, minimal, and consistent with the file's existing pattern, but the PR also carries an unrelated, undocumented P2PM queue-duplicate fix with a plausible correctness gap (customer_id vs. account_id granularity mismatch) and no committed automated tests, which lowers the overall quality of what was submitted.
+Strengths:
+  - Dashboard fix reuses the exact if(!empty(...)) session-filter pattern already used by 11 sibling endpoints, minimizing risk and review burden
+  - Session filter is additive (ANDed) alongside the existing POST filter and deliberately excludes partner_id, matching the stated scope exactly
+  - PR description documents production evidence (role-group/company_id distribution) supporting why OneStack users are unaffected
+Areas for Improvement:
+  - Split the P2PM terminal UPI queue-duplicate fix (both CompanyMaster_model.php files and AutomatedAPI.php) into its own PR with its own description and rationale
+  - Fix the customer_id/account_id granularity mismatch in resetFailedP2pmTerminalUpiGenerationQueue before merging
+  - Add committed automated regression tests for both the access-control change and the queue-reset logic rather than relying on a manual/ad-hoc harness
+
+Business Context Review
+-----------------------
+Status: COMPLETED
+
+Requirements: 5 identified, 4 covered, 1 partially covered
+Scenarios: 4 identified, 4 covered, 0 missing
+Business Rules: 3 identified, 2 satisfied, 1 violated
+
+Total Business Findings: 1
+
+[HIGH] application/modules/cbs/models/CompanyMaster_model.php:638 - PR bundles unrelated P2PM UPI queue changes outside the stated scope
+    category=BUSINESS_RULE confidence=0.92
+    The Business Context explicitly scopes this change to one file, three dashboard-chart helpers, roughly 12 added lines and zero removed lines, and says 'Do not touch the other 11 endpoints, the JS, or the routes.' The diff also edits this file and the near-identical application/modules/mobile_app/models/bank_onboarding_form/CompanyMaster_model.php (removing WHERE conditions and adding resetFailedP2pmTerminalUpiGenerationQueue), plus wires it up in AutomatedAPI.php around line 2368 — none of which relates to dashboard bank scoping. Bundling an unrelated P2PM terminal UPI retry mechanism into a security-sensitive access-control PR contradicts the documented narrow-scope basis this review relies on and makes the tenant-data-access diff harder to audit in isolation. Recommend splitting the P2PM queue-reset work into a separate PR.
+
+Dry run: skipping publish step. No changes were made to GitHub.
+EXIT=0 TOOK=383s

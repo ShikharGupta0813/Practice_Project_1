@@ -1,0 +1,6 @@
+2026-10-13 07:12:50 [ERROR] Command exited with status 128: git diff onestackcbs...sg_cl_asset_bundling
+stderr: fatal: not a git repository: /mnt/c/xampp/htdocs/oneStack-worktrees/sg_cl_asset_bundling/C:/xampp/htdocs/oneStackLocal/.git/worktrees/sg_cl_asset_bundling
+Error: Command exited with status 128: git diff onestackcbs...sg_cl_asset_bundling
+stderr: fatal: not a git repository: /mnt/c/xampp/htdocs/oneStack-worktrees/sg_cl_asset_bundling/C:/xampp/htdocs/oneStackLocal/.git/worktrees/sg_cl_asset_bundling
+Comparing branches: 'sg_cl_asset_bundling' -> 'onestackcbs'...
+EXIT=1 TOOK=0s

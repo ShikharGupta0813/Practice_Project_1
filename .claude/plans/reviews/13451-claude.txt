@@ -1,0 +1,134 @@
+2026-09-30 06:34:05 [INFO] Review succeeded on attempt 1/3 with 6 finding(s).
+2026-09-30 06:34:40 [INFO] Business review succeeded on attempt 1/3 with 2 finding(s).
+Fetching metadata for PR #13451...
+Running review with provider 'claude'...
+Running Business Context review...
+
+AI Review Summary
+
+Overview:
+  What Changed: The intended change, per the PR title and description, touches only CustomerMaster.php. renderTableLink() now escapes its label once through html_escape(), and a new $escapeLabel opt-out is used only by the UPI 2.0 transaction-id cell, which is escaped before the <br/> split. Eight htmlspecialchars wrappers that are no longer needed were removed. DB-sourced cell values in the customer, order, UPI 1.0/2.0, ticket and bank-customer DataTables row builders are now wrapped in html_escape(). The diff against onestackcbs-dev also includes eight other files from unrelated commits. These add a new expired-KYC cron and route, change the KYC status logic in the view and the customer list, pass a client-side bankid for PAN verification, repoint NPCI request-id lookups, and change the Yes Bank VPA error-log filter.
+  Files Modified: application/config/cbs-routes.php, application/modules/cbs/controllers/CbsCron.php, application/modules/cbs/controllers/CustomerProfileManagement.php, application/modules/cbs/views/customer-account-management/npci-merchant-addition.php, application/modules/cbs/views/customer-profile-management/kyc-information.php, application/modules/mobile_app/controllers/customers/CustomerMaster.php, application/modules/mobile_app/controllers/npci-upi/NpciMobileAPIV6.php, application/modules/mobile_app/models/bank_onboarding_form/CompanyMaster_model.php, application/modules/mobile_app/models/pagination/CustomersListModel.php
+  High-Level Impact: The CustomerMaster changes are display-only. They close stored-XSS paths in about eight admin DataTables endpoints and should render normal data byte-identically. The unrelated files carry behaviour changes that write to the database or affect business logic: a cron that bulk-resets customer KYC flags and overwrites verify_panname, a new KYC status calculation in the profile view and the customer list, NPCI UPI lookups against a different table and column, and a changed filter on the Yes Bank VPA error export.
+  Potential Review Focus: Confirm why the head branch (cut from onestackcbs) pulls unrelated production commits into onestackcbs-dev, and whether those should be reviewed separately. In CustomerMaster, check that every raw DB value in the listed $row[] lines is escaped, that the single false opt-out at the UPI 2.0 id is the only pre-built HTML label, and that nothing double-escapes. In the unrelated changes, check the Yes Bank P2PM filter logic, the KYC-expiry cron (scope, destructive overwrite, per-row updates), the new 'Not Done' CASE branch that now takes precedence over Digital KYC/eKYC, the NPCI request_id/id table remapping, and server-side validation of the client-supplied bankid.
+
+Critical: 0
+High: 1
+Medium: 4
+Low: 1
+Suggestion: 0
+
+Total Findings: 6
+
+[HIGH] application/modules/mobile_app/models/bank_onboarding_form/CompanyMaster_model.php:769 - P2M-only subquery still hides P2PM failures for customers with a P2M VPA
+    category=Correctness confidence=0.90
+    The subquery now excludes every mobile number that has a Yes Bank P2M VPA, but it is not tied to the type of the failed attempt, so a P2PM failure for a customer with a working P2M VPA is still filtered out. That is exactly the case the new comment says is being fixed. The only rows newly shown are customers with a P2PM VPA and no P2M VPA, which the comment itself says practically cannot happen, so the bug the export was meant to fix remains. Match the excluded VPA type to the error row's own attempt type (or an equivalent field on the error log) instead of hard-coding P2M.
+
+[MEDIUM] application/config/cbs-routes.php:1492 - PR diff includes eight unrelated files from other branches
+    category=General confidence=0.90
+    The description says only CustomerMaster.php is touched, but the diff against onestackcbs-dev also includes a new cron and route, KYC view and model logic, NPCI table remapping and a VPA export filter change. This is because the head branch was cut from onestackcbs. Merging this PR would put those behaviour changes into dev under an XSS-fix title without them being reviewed as such. Rebase the branch onto onestackcbs-dev, or get explicit sign-off that these production commits are meant to be synced here.
+
+[MEDIUM] application/modules/cbs/controllers/CbsCron.php:2554 - Cron permanently overwrites the verified PAN name with 'NA'
+    category=Database confidence=0.80
+    When a risk profile expires, the cron replaces verify_panname (the name returned by PAN verification) with 'NA' and does not keep a history or audit record. That verified KYC data cannot be recovered when the risk profile is renewed. The updated kyc-information view already calculates expiry by itself, so this destructive overwrite does not seem necessary for the status display. Consider resetting only the verification flags, or keeping the prior value in an audit or history table.
+
+[MEDIUM] application/modules/cbs/controllers/CbsCron.php:2542 - Expiry cron skips customers verified only by Aadhaar
+    category=Correctness confidence=0.82
+    The cron only selects customers whose verify_panname is non-empty and not 'NA'. The new view and list logic, however, treat is_aadhar_no_verified = 1 alone as verified. Aadhaar-only verified customers with an expired risk profile are therefore never reset, so CustomersListModel keeps showing a done KYC status while the profile view shows 'Not Verified'. Base the selection on the same verification flags the view and list use.
+
+[MEDIUM] application/modules/cbs/controllers/CbsCron.php:2552 - Cron loads all expired rows and updates them one by one
+    category=Performance confidence=0.85
+    The cron loads every matching customer into memory and runs one UPDATE per row, with no batching or transaction. It can also update the same customer several times if they have more than one active risk profile, which inflates the reported count. On a large customer base this means many round trips and a partial update if the run dies midway. Use a single set-based UPDATE with a join or WHERE IN, or process the rows in batches inside a transaction.
+
+[LOW] application/modules/cbs/views/customer-profile-management/kyc-information.php:266 - View queries the database for risk-profile expiry
+    category=Architecture confidence=0.85
+    The view now calls CommonModel directly to fetch tbl_customer_risk_profile and applies the KYC-expiry rule inline. This puts data access and business logic in the presentation layer and duplicates the expiry rule that CbsCron also implements. Compute the KYC status in the controller or a model and pass it to the view, so there is one source of truth.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: Escaping output looks mechanical, but it covers about 8 endpoints and requires classifying each cell as raw DB text, a known constant, or intentional HTML. It also has to avoid double-escaping and keep the <br/>-wrapped UPI identifiers working.
+Factors:
+  - Around 55 output sites across 8 DataTables endpoints in a 7,000+ line controller
+  - A shared private helper (renderTableLink) whose behaviour changes for 32 call sites
+  - Mix of pre-escaped labels, intentional HTML labels and raw values, which creates double-escape and broken-markup risk
+  - chunk_split with <br/> means escaping has to happen before the split
+  - renderButton must stay unchanged because other callers pass icon HTML labels
+
+Fix Quality
+Level: GOOD
+Summary: For its stated goal, the CustomerMaster change is correct and consistent: the label is escaped once centrally, the pre-escaping that would have double-escaped was removed, and html_escape is applied where values are printed while badge switches still compare raw values. The main problem is that the branch carries unrelated production commits into the dev PR.
+Strengths:
+  - Escaping is done once inside renderTableLink, and the opt-out is limited to the one pre-built HTML label
+  - The 8 htmlspecialchars wrappers were removed, so the output stays byte-identical
+  - UPI identifiers are escaped before chunk_split, so the <br/> wrapping still works
+  - Badge-colour logic still uses raw values; only printed text is escaped
+  - The PR documents a CLI byte-equality check of the old and new helper, plus a planned grep-based verification
+Areas for Improvement:
+  - Rebase onto onestackcbs-dev so the diff contains only CustomerMaster.php
+  - No automated regression test locks in renderTableLink escaping or the $escapeLabel opt-out
+  - The live DataTables lists have not been checked in a browser yet (the PR defers this to staging)
+
+Database Recommendations
+------------------------
+[HIGH] COLUMN_EXISTENCE_CHECK
+    Table: tbl_customers
+    Columns: is_aadhar_no_verified, is_pan_no_verified, verify_panname
+    Recommendation: Verify that tbl_customers.is_aadhar_no_verified exists in every target environment, is NOT NULL with a default of 0, and has been populated for existing customers.
+    Reason: The code now selects the column in CustomerProfileManagement, updates it in CbsCron, and compares it with = 0 in the CustomersListModel CASE, where NULL values would silently fall through to other branches.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] INDEX_CHECK
+    Table: tbl_customer_risk_profile
+    Columns: is_active, risk_expiry_date, customer_id, bank_id
+    Recommendation: Verify that indexes exist to support filtering on (is_active, risk_expiry_date) for the cron, and lookups on (customer_id, bank_id, is_active) for the KYC view.
+    Reason: The new cron scans for expired active profiles and joins to customers on customer_id/bank_id, and the KYC view queries by customer_id, bank_id and is_active on every page load.
+    Action: Cross-check the actual database before release.
+
+[HIGH] PRODUCTION_DB_VERIFICATION
+    Table: NPCI_UPI_NON_FINANCIAL_REQUEST_RESPONSE / NPCI_UPI_FINANCIAL_REQUEST_RESPONSE / NPCI_UPI_XML_REQUEST_RESPONSE / NPCI_UPI_FINANCIAL_XML_REQUEST_RESPONSE
+    Columns: id, request_id, api_txnid, api_name, api_flag
+    Recommendation: Verify that NPCI_UPI_XML_REQUEST_RESPONSE.request_id stores the non-financial table's id for ReqValAdd and ReqBalEnq, and that NPCI_UPI_FINANCIAL_XML_REQUEST_RESPONSE.request_id stores the financial table's id (not a separate request_id value) for ReqPay.
+    Reason: The PR changes the source table and column used to build the XML lookup key. If the stored key does not match, the auth-token-invalid fallback will silently find no XML.
+    Action: Cross-check the actual database before release.
+
+[LOW] INDEX_CHECK
+    Table: NPCI_UPI_NON_FINANCIAL_REQUEST_RESPONSE
+    Columns: api_txnid, api_name, api_flag
+    Recommendation: Verify that an index on api_txnid (or a composite with api_name and api_flag) exists on the non-financial request/response table.
+    Reason: The ReqValAdd and ReqBalEnq lookups now query this table by api_txnid, api_name and api_flag instead of the financial table.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] COLUMN_EXISTENCE_CHECK
+    Table: tbl_upi (the Yes Bank VPA table joined as upi)
+    Columns: vpa_type
+    Recommendation: Verify that the vpa_type column exists on the UPI VPA table and that Yes Bank P2M records actually store the literal value 'P2M' (check the case and any legacy NULLs).
+    Reason: The Yes Bank VPA error-log export subquery now filters on upi.vpa_type = "P2M".
+    Action: Cross-check the actual database before release.
+
+Business Context Review
+-----------------------
+Status: COMPLETED
+
+Requirements: 5 identified, 4 covered, 1 partially covered
+Scenarios: 5 identified, 5 covered, 0 missing
+Business Rules: 5 identified, 4 satisfied, 1 violated
+
+Total Business Findings: 2
+
+[HIGH] application/modules/cbs/controllers/CbsCron.php:2533 - PR scope exceeds the approved single-file, display-only change
+    category=BUSINESS_REQUIREMENT confidence=0.93
+    The Business Context limits this change to CustomerMaster.php, says it is display-only with no DB writes, and expects `git diff --stat` to show 1 file. This PR changes 9 files, because the branch was cut from onestackcbs but the PR targets onestackcbs-dev. The extra changes include a new cron that sets customers' KYC to not verified (updateExpiredKycStatus), a new route, NPCI request-lookup changes, KYC status view and query logic, and a YES Bank error-log filter. Merging it would bring unrelated behaviour that writes to the DB into dev under an XSS-fix ticket, so retarget the PR to onestackcbs or rebase it so the diff contains only CustomerMaster.php.
+
+[LOW] application/modules/mobile_app/controllers/customers/CustomerMaster.php:2066 - Acceptance grep for raw $value in row builders is not met
+    category=EXPECTED_BEHAVIOUR confidence=0.82
+    The Business Context's test says the grep for raw `$value[...]` in `$row[]` lines should return no output. Here it still matches the hand-built UPI 1.0 anchors at :2066 and :2152, where `$value['id']` goes into the href unescaped and does not pass through renderTableLink's attribute escaping. The value is probably a numeric primary key, so the risk is low, but the documented acceptance criterion is not met as written. Either escape the id or record this exception in the plan's acceptance criteria so a reviewer can sign off on it.
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Dry run: skipping publish step. No changes were made to GitHub.
+EXIT=0 TOOK=145s

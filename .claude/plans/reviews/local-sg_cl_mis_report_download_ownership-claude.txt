@@ -1,0 +1,106 @@
+2026-10-01 05:41:12 [INFO] Review succeeded on attempt 1/3 with 1 finding(s).
+2026-10-01 05:44:02 [INFO] Business review succeeded on attempt 1/3 with 0 finding(s).
+Comparing branches: 'sg_cl_mis_report_download_ownership' -> 'onestackcbs'...
+Running review with provider 'claude'...
+Running Business Context review...
+
+AI Review Summary
+
+Overview:
+  What Changed: Adds an ownership check so bank users can download only their own bank's generated MIS report files. A new helper, mis_report_belongs_to_bank(), accepts a filename only if the whole name is the user's bank safe-name (or bank id), then '_', then one of the 24 known report names, a Bank_Book_<product>_<date>.xlsx name, or a MIS_Reports_<14 digits>.zip name. Names that are valid for more than one bank are refused. The check runs in both MIS controllers' xlsxdownload() and in FileController::download() whenever the resolved path is inside internal-excel-files/temp/. The bank-book and bulk-zip generators now put the bank's safe name at the start of their filenames.
+  Files Modified: application/controllers/FileController.php, application/helpers/mis_report_helper.php [NEW], application/modules/cbs/controllers/BankAndOnestackMisReports.php, application/modules/cbs/controllers/BankAndOnestackMisReportsExp.php
+  High-Level Impact: Closes a cross-tenant leak: any logged-in bank user could fetch another bank's customer reports through both download routes. The check fails closed. Bank users are refused, with a 404, for files generated before this change (unprefixed bank-book and zip files), for files from report generators missing from the hardcoded list, for names valid for more than one bank, and for files made under a bank's old name after a rename. OneStack users (no company_id in session) are unaffected. Each bank-user download now runs two small COMPANY_MASTER queries.
+  Potential Review Focus: The allow-list regex in mis_report_helper.php has to stay in sync with the generator filenames. All 24 safe_bankname-prefixed names in both controllers currently match it. Review the FileController realpath/temp-folder scoping, which correctly checks the same path that file_exists()/force_download() then use. Also review the ambiguity rule that refuses names valid for more than one bank.
+
+Code Flow Diagram
+-----------------
+The ownership check now shared by xlsxdownload() and FileController::download() for files in internal-excel-files/temp/.
+
+```mermaid
+flowchart TD
+    A[Download request] --> B{Logged in?}
+    B -->|No| C[Redirect / 403]
+    B -->|Yes| D{Bank user? company_id in session}
+    D -->|No - OneStack| H[Serve file if exists]
+    D -->|Yes| E{File in temp folder?}
+    E -->|No| H
+    E -->|Yes| F{Name = own bank prefix + known report name?}
+    F -->|No| G[404]
+    F -->|Yes| I{Name also valid for another bank?}
+    I -->|Yes| G
+    I -->|No| H
+```
+
+Relevant code: application/helpers/mis_report_helper.php, application/controllers/FileController.php, application/modules/cbs/controllers/BankAndOnestackMisReports.php
+
+Critical: 0
+High: 0
+Medium: 0
+Low: 1
+Suggestion: 0
+
+Total Findings: 1
+
+[LOW] application/helpers/mis_report_helper.php:14 - Security-critical filename matcher has no automated tests
+    category=Testing confidence=0.82
+    mis_report_belongs_to_bank() is the only barrier against cross-bank access to customer PII, and its correctness depends on a hand-maintained regex and the ambiguity rule (prefix collisions like 'X' vs 'X Soundbox', bank-id fallback, Bank_Book lookahead). The prefix-collision cases described in the task are not in the diff as tests, so a future edit to the report list or the regex could reopen the leak or lock banks out without anyone noticing. Consider committing those cases as a unit test, or at least a small test script, alongside the helper.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: This is a multi-tenant access-control fix that has to infer file ownership from predictable, free-form filenames. It also has to cover two separate download routes and handle prefix collisions between bank names.
+Factors:
+  - Ownership must be derived from filenames built from free-text bank names, which creates prefix/suffix ambiguity between banks
+  - Two independent download routes (xlsxdownload and the generic downloads/(.*) FileController) serve the same folder
+  - Path-normalisation concerns (../, ./, //) in the generic file route
+  - Generated filenames change for two generators, which affects already-existing files
+  - Duplicated controller (Exp) requires identical changes
+
+Fix Quality
+Level: GOOD
+Summary: The fix closes the leak on both routes with a fail-closed, whole-name match that handles bank-name prefix collisions, and it is placed in one shared helper. Its main weaknesses are that the report allow-list must be maintained by hand and that the edge cases have no automated tests.
+Strengths:
+  - Shared helper used by all three entry points instead of per-controller copies
+  - Whole-filename regex match with preg_quote on the bank prefix, plus refusal of names valid for more than one bank, avoids prefix-collision bypasses
+  - FileController scopes the check by realpath() inside the temp folder and checks the same path later used by file_exists()/force_download(), so traversal variants cannot skip it
+  - Refused files return 404 just like missing files, so the check does not reveal which files exist
+  - Bank-book and zip filenames now carry the bank prefix, which also stops two banks' same-named bank-book files from overwriting each other
+Areas for Improvement:
+  - Add automated tests for mis_report_belongs_to_bank() covering prefix collisions, the bank-id fallback and Bank_Book/zip patterns
+  - The report-name allow-list is separate from the generators; a new generator will be silently refused for bank users unless someone remembers to update the helper (consider deriving names from a shared constant)
+  - The four-line bank-name lookup (COMPANY_MASTER select, id fallback, safe name) is copied into four places; a helper such as mis_report_safe_bank_name_for_id() would keep generators and the matcher consistent
+
+Database Recommendations
+------------------------
+[INFO] QUERY_PERFORMANCE_CHECK
+    Table: company_master
+    Columns: id, company_name
+    Recommendation: Confirm that COMPANY_MASTER stays small enough that a full-table select of id and company_name on every bank-user report download is acceptable.
+    Reason: mis_report_belongs_to_bank() runs an id lookup and then an unfiltered select of all banks for each download request from a bank user.
+    Action: Cross-check the actual database before release.
+
+[LOW] PRODUCTION_DB_VERIFICATION
+    Table: company_master
+    Columns: company_name
+    Recommendation: Check production company_name values for pairs where one bank's safe name (spaces, dots and commas replaced by '_') plus a report name equals another bank's safe name plus a report name, for example 'X' and 'X Soundbox'.
+    Reason: Under the new rule, names valid for more than one bank are refused for bank users, so such pairs would lock both banks out of the affected reports.
+    Action: Cross-check the actual database before release.
+
+Business Context Review
+-----------------------
+Status: COMPLETED
+
+Requirements: 7 identified, 7 covered, 0 partially covered
+Scenarios: 6 identified, 6 covered, 0 missing
+Business Rules: 5 identified, 5 satisfied, 0 violated
+
+Total Business Findings: 0
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Branch comparison mode: this review is not published to GitHub -- there is no pull request to attach it to.
+EXIT=0 TOOK=333s

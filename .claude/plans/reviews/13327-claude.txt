@@ -1,0 +1,71 @@
+2026-09-23 13:47:12 [INFO] Review succeeded on attempt 1/3 with 1 finding(s).
+2026-09-23 17:02:22 [WARNING] Business review attempt 1/3: provider 'claude' returned invalid JSON: Response is not valid JSON: Expecting value: line 1 column 1 (char 0)
+2026-09-23 17:04:56 [INFO] Business review succeeded on attempt 2/3 with 2 finding(s).
+Fetching metadata for PR #13327...
+Running review with provider 'claude'...
+Running Business Context review...
+
+AI Review Summary
+
+Overview:
+  What Changed: Batch 2 of a security-motivated route audit: 9 CodeIgniter routes whose permission suffix was wrong or unrecognized (mostly gating bulk SMS/WhatsApp sending, module-config save, and vendor-mapping toggle behind '-view' or an invalid action) are re-keyed to the correct '-add'/'-edit' suffix, and 51-52 caller references across PHP views and one JS file are updated to the new URLs. Separately, 33 dead/duplicate routes with no live callers are disabled via an existing '// UNUSED-ROUTE:' convention. An unrelated change to application/third_party/yesbank/libraries/YesbankP2PM.php conditions the 'dob'/'doi' fields on a new 'ownershipType' check.
+  Files Modified: application/config/cbs-routes.php, application/config/routes.php, application/modules/cbs/views/communication/email-templates/index.php, application/modules/cbs/views/communication/mailer-templates/index.php, application/modules/cbs/views/communication/notification-templates/index.php, application/modules/cbs/views/communication/sms-templates/index.php, application/modules/cbs/views/communication/whatsapp-templates/index.php, application/modules/mobile_app/views/bank_onboarding_form/company-master/import-customers-view.php, application/modules/mobile_app/views/bank_onboarding_form/company-master/view.php, application/modules/mobile_app/views/communication/all-templates/index.php, application/modules/mobile_app/views/communication/sms-templates/index.php, application/modules/mobile_app/views/communication/sms-templates/index_sms.php, application/modules/mobile_app/views/communication/sms-templates/sms_testing.php, application/modules/mobile_app/views/communication/whatsapp-notification-template/index.php, application/modules/mobile_app/views/communication/whatsapp-notification-template/index_whatsapp.php, application/modules/mobile_app/views/communication/whatsapp-notification-template/whatsapp_testing.php, application/modules/mobile_app/views/configuration/vendor-config/configuration-index.php, application/modules/mobile_app/views/configuration/vendor_module_configuration/module_details.php, application/third_party/yesbank/libraries/YesbankP2PM.php, application/views/admin/all-templates/index.php, application/views/admin/company-master/import-customers-view.php, application/views/admin/company-master/view.php, application/views/admin/prefs/interfaces/admin.php, application/views/admin/prefs/interfaces/public.php, assets/custom/js/customer_view.js
+  High-Level Impact: The route re-keys tighten access control: bulk customer SMS/WhatsApp messaging, module-config save, and vendor-mapping toggling now require 'add'/'edit' permission instead of being reachable with mere 'view' access or falling through a fail-open permission check. This is a behavior change for any staff who previously relied on 'view'-only access to perform these actions. Disabling the 33 dead routes closes previously fail-open side doors but has no functional effect since the routes were unused. The unrelated YesbankP2PM.php edit changes merchant-onboarding payload construction for a banking partner integration and is not covered by this PR's stated scope, tests, or description.
+  Potential Review Focus: Verify no caller was missed for the 9 re-keyed routes (especially the vendor_configuration-edit path, since the PR description's caller count for that route is confusingly stated as both 'checked, already correct' and 'now updated'). Confirm the 33 disabled routes truly have zero external callers (bookmarks, mobile app hardcoded URLs, third-party integrations) beyond what static grep found. Scrutinize the YesbankP2PM.php change, which is unrelated to the PR's stated purpose and has no accompanying test or explanation.
+
+Critical: 0
+High: 1
+Medium: 0
+Low: 0
+Suggestion: 0
+
+Total Findings: 1
+
+[HIGH] application/third_party/yesbank/libraries/YesbankP2PM.php:232 - Unguarded array access on ownershipType silently drops KYC data
+    category=Correctness confidence=0.85
+    Unlike every other field in this payload, `$params['ownershipType']` is read directly instead of via `isset()`, then passed to `strtoupper()`; if the caller omits it, this raises an undefined-array-key warning and a PHP 8.1+ deprecation notice on `strtoupper(null)`, and the comparison against `'INDIVIDUAL'` silently evaluates to false, causing `dob` to be dropped even when the caller supplied it. For a merchant-onboarding payload sent to a banking partner (YesBank P2PM `create_seller`), silently losing date-of-birth data is a real data-integrity risk. This change is also unrelated to the PR's stated route-permission scope and has no test coverage or explanation in the description. Guard with `isset($params['ownershipType'])` consistent with the surrounding fields.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: HIGH
+Summary: The change touches a security-relevant, fail-open permission-resolution mechanism spanning two large route config files and over 20 caller files, requiring exhaustive caller discovery to avoid breaking buttons while closing an authorization gap that currently allows view-only admins to send bulk customer messages.
+Factors:
+  - Correcting production permission checks for 9 write actions, including bulk customer SMS/WhatsApp messaging, with direct security impact if a caller is missed
+  - Disabling 33 legacy alias routes requires exhaustive verification that no live caller (including hardcoded JS/mobile-app URLs) references them
+  - Coordination with a related, still-unmerged task (menu-based permission enforcement) affects whether some of these fixes take effect immediately or remain fail-open (prefs routes)
+  - 53+ caller call sites across PHP views and a JS file had to be located and updated consistently with the route renames
+
+Fix Quality
+Level: GOOD
+Summary: The route re-keys and caller updates in the diff precisely match the audited plan, with route-table diffs (9 re-keyed, 33 disabled, targets otherwise unchanged) verified by the author's own before/after dump, but the PR bundles in an unrelated, undocumented, and subtly buggy change to a banking third-party library, and the security-relevant permission change ships without any automated regression test, relying entirely on manual two-account staging verification.
+Strengths:
+  - Route renames and 33 route disablements match the audited plan exactly, with each re-keyed line annotated with the originating task ID and old suffix for traceability
+  - All identified caller sites (views and JS) are updated consistently to the new URLs in the same commit, avoiding a broken-button window
+  - Uses the codebase's existing '// UNUSED-ROUTE:' convention rather than deleting routes outright, making the change easy to audit and revert
+Areas for Improvement:
+  - No automated test (unit, integration, or route-resolution test) accompanies a change that alters which permission gates bulk customer messaging; verification is manual and described as not yet performed
+  - The unrelated YesbankP2PM.php ownershipType change should be split into its own PR so the security-critical route diff isn't reviewed alongside an unrelated, under-tested behavioral change
+  - Fix the missing isset() guard on $params['ownershipType'] before merging, to avoid silently dropping dob data for callers that omit the field
+
+Business Context Review
+-----------------------
+Status: COMPLETED
+
+Requirements: 5 identified, 5 covered, 0 partially covered
+Scenarios: 3 identified, 3 covered, 0 missing
+Business Rules: 3 identified, 3 satisfied, 0 violated
+
+Total Business Findings: 2
+
+[MEDIUM] application/third_party/yesbank/libraries/YesbankP2PM.php:232 - Unrelated Yesbank dob/doi logic bundled into route-suffix PR
+    category=BUSINESS_AMBIGUITY confidence=0.90
+    The diff includes a behavioral change to YesbankP2PM::create_seller's dob/doi field logic based on ownershipType that the Business Context does not mention anywhere; it only describes route re-keying and disabling dead routes. A reviewer approving based on the stated scope (permission-suffix corrections) would not realize they're also approving unreviewed seller-onboarding payload logic. Recommend splitting this change into its own PR or explicitly calling it out in the PR description.
+
+[LOW] application/modules/mobile_app/views/configuration/vendor-config/configuration-index.php:269 - PR description misstates A9 caller as unchanged
+    category=BUSINESS_AMBIGUITY confidence=0.85
+    The PR description's table lists the vendor_configuration-update caller as '0 changed (see note)', implying a follow-up -update→-edit fix is still needed on the dev branch, but the diff already makes that exact change at this line in this PR. This could mislead a reviewer into thinking A9's caller update is still outstanding when it is already complete. Recommend correcting the PR description before merge.
+
+Dry run: skipping publish step. No changes were made to GitHub.
+EXIT=0 TOOK=11990s

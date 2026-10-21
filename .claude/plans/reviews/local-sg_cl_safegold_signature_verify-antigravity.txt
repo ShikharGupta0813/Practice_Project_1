@@ -1,0 +1,98 @@
+2026-09-30 13:17:20 [INFO] Review succeeded on attempt 1/3 with 0 finding(s).
+2026-09-30 13:17:43 [WARNING] Business review attempt 1/3: provider 'antigravity' returned invalid JSON: Provider returned an empty response.
+2026-09-30 13:18:38 [INFO] Business review succeeded on attempt 2/3 with 0 finding(s).
+Comparing branches: 'sg_cl_safegold_signature_verify' -> 'onestackcbs'...
+Running review with provider 'antigravity'...
+Running Business Context review...
+
+AI Review Summary
+
+Overview:
+  What Changed: Added Razorpay payment signature verification using the official Razorpay SDK in the SafeGold library, ensured payment status is derived solely from cryptographic signature validity rather than untrusted request parameters, and implemented database row locking (SELECT ... FOR UPDATE) to serialize concurrent callbacks and prevent duplicate payment transactions across both apiv2 and apiv6.
+  Files Modified: application/modules/mobile_app/controllers/apiv2/InvestmentsSafeGold.php, application/modules/mobile_app/controllers/apiv6/InvestmentsSafeGold.php, application/third_party/safegold/libraries/Safegold.php
+  High-Level Impact: Resolves a critical payment integrity vulnerability where unverified callbacks could record fraudulent success states, while fixing genuine payment callbacks that previously were recorded as failed. Adds concurrency control and idempotency to eliminate duplicate payment entries on replayed callbacks.
+  Potential Review Focus: Review the row-locking query and transaction lifecycle on early return, ensure verify_payment_signature handles SDK errors gracefully, and confirm that an appropriate index exists on tbl_safegold_transaction.razorpay_order_id in production.
+
+Code Flow Diagram
+-----------------
+The PR updates the payment callback flow to verify the Razorpay signature before assigning payment status, and uses row locking to ignore redundant callbacks for already-paid orders.
+
+```mermaid
+flowchart TD
+    A["Receive Payment Callback"] --> B{"Valid Razorpay Signature?"}
+    B -->|Yes| C["Set Status: success"]
+    B -->|No| D["Set Status: failed"]
+    C --> E["Begin DB Transaction"]
+    D --> E
+    E --> F["Lock Row: SELECT FOR UPDATE"]
+    F --> G{"Order Already Paid?"}
+    G -->|Yes| H["Rollback & Log Ignored"]
+    G -->|No| I["Insert Payment & Update Order Status"]
+```
+
+Relevant code: application/modules/mobile_app/controllers/apiv2/InvestmentsSafeGold.php, application/modules/mobile_app/controllers/apiv6/InvestmentsSafeGold.php, application/third_party/safegold/libraries/Safegold.php
+
+Critical: 0
+High: 0
+Medium: 0
+Low: 0
+Suggestion: 0
+
+Total Findings: 0
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: HIGH
+Summary: The problem involves critical payment integrity and reconciliation risks, external gateway cryptographic verification, and state synchronization with row-level locking to handle concurrent callbacks.
+Factors:
+  - High financial and compliance impact: unverified payment records can lead to financial loss or distorted accounting and reconciliation ledgers.
+  - Concurrency and idempotency requirements: handling concurrent, duplicate, or out-of-order webhook callbacks requires pessimistic database locking to prevent duplicate payment rows.
+  - External gateway integration: verifying HMAC-SHA256 signatures via Razorpay SDK across varied callback payload formats (success with signature vs error payloads).
+  - Multi-version API synchronization: ensuring identical security and transactional behavior across apiv2 and apiv6 controllers.
+
+Fix Quality
+Level: STRONG
+Summary: The implementation cleanly resolves the signature verification vulnerability using the official SDK, correctly couples payment status and user messages to signature validity, and reliably manages concurrency with row-level locking and rollback.
+Strengths:
+  - Delegates HMAC-SHA256 signature verification to the official Razorpay SDK utility method rather than relying on untrusted client status parameters.
+  - Enforces that payment status and response messages are determined solely by cryptographic signature validity.
+  - Implements pessimistic row locking (SELECT ... FOR UPDATE) within an explicit transaction to serialize concurrent callbacks and prevent duplicate tbl_payment_transactions records.
+  - Properly invokes transaction rollback before returning early on ignored callbacks, avoiding lingering open transactions or held row locks.
+  - Maintains strict parity across both active API controllers (apiv2 and apiv6).
+Areas for Improvement:
+  - Requires verification of an index on tbl_safegold_transaction.razorpay_order_id to prevent table-level lock contention during FOR UPDATE queries in production.
+  - The save_payment_post logic is duplicated verbatim across apiv2 and apiv6, which could be refactored into a shared service or trait in a future maintenance pass.
+
+Database Recommendations
+------------------------
+[HIGH] INDEX_CHECK
+    Table: tbl_safegold_transaction
+    Columns: razorpay_order_id
+    Recommendation: Verify that an index (preferably UNIQUE) exists on tbl_safegold_transaction.razorpay_order_id before deploying this change.
+    Reason: The PR introduces a SELECT ... FOR UPDATE query filtering on razorpay_order_id. Without an index on this column, InnoDB will perform a full table scan and lock all rows and gaps in tbl_safegold_transaction, causing severe lock contention and potential lock wait timeouts during concurrent callbacks.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] DB_COMPATIBILITY_CHECK
+    Table: tbl_safegold_transaction
+    Recommendation: Verify that tbl_safegold_transaction uses the InnoDB storage engine rather than MyISAM.
+    Reason: The idempotency mechanism relies on row-level locking (SELECT ... FOR UPDATE) and transaction rollback within CodeIgniter database transactions, which are not supported by non-transactional engines like MyISAM.
+    Action: Cross-check the actual database before release.
+
+Business Context Review
+-----------------------
+Status: COMPLETED
+
+Requirements: 8 identified, 8 covered, 0 partially covered
+Scenarios: 7 identified, 7 covered, 0 missing
+Business Rules: 5 identified, 5 satisfied, 0 violated
+
+Total Business Findings: 0
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Branch comparison mode: this review is not published to GitHub -- there is no pull request to attach it to.
+EXIT=0 TOOK=212s

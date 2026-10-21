@@ -1,0 +1,15 @@
+application/views/admin/company-master/create.php
+application/views/admin/homepage/index.php
+application/views/admin/partner-master/create.php
+application/views/admin/product/agent-assist/agent-assist.php
+application/views/admin/users/my_profile.php
+application/views/auth/change-password.php
+application/views/auth/forgot-password.php
+application/views/auth/login-page.php
+application/views/auth/reset-password.php
+application/views/debug/customer_cbs_v1.php
+application/views/public/form1.php
+application/views/public/form2.php
+assets/custom/js/cbs_debugger.js
+assets/custom/js/custom.js
+assets/custom/js/mobile_debugger.js

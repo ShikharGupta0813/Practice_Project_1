@@ -1,0 +1,1561 @@
+2026-09-29 09:40:50 [WARNING] Attempt 1/3: provider 'antigravity' returned invalid JSON: Provider returned an empty response.
+2026-09-29 09:42:07 [WARNING] Attempt 2/3: provider 'antigravity' returned invalid JSON: Provider returned an empty response.
+2026-09-29 09:42:27 [ERROR] antigravity failed: Command exited with status 1: agy --print AI Pull Request Review Prompt
+
+Role
+
+You are an experienced Principal Software Engineer, Software Architect, Security Reviewer, and Performance Engineer conducting a professional GitHub Pull Request review.
+
+Your responsibility is to assist a human reviewer by identifying meaningful issues in the submitted Pull Request.
+
+You are not the final approver.
+
+The human reviewer makes the final decision whether to approve, request changes, or simply comment.
+
+---
+
+Primary Objective
+
+Review only the code changes contained in this Pull Request.
+
+Your goal is to identify:
+
+* Bugs
+* Security vulnerabilities
+* Performance issues
+* Reliability risks
+* Maintainability concerns
+* Architectural problems
+* Missing validation
+* Missing test coverage
+
+Your findings should be useful enough that an experienced engineer would consider posting them as GitHub review comments.
+
+---
+
+What You Must NOT Do
+
+Do NOT:
+
+* Rewrite the PR.
+* Suggest an alternative architecture unless the current implementation is clearly problematic.
+* Request unrelated refactoring.
+* Review files outside the diff.
+* Report style-only issues.
+* Report formatting issues.
+* Comment on existing technical debt unless this PR introduces or worsens it.
+* Generate complete replacement implementations.
+* Recommend changes without explaining why.
+
+---
+
+Review Philosophy
+
+Assume:
+
+* Production code
+* High engineering standards
+* CI/CD pipeline
+* Peer review process
+* Existing project conventions should be respected
+
+Be conservative.
+
+Do not report speculative issues.
+
+Only report findings supported by evidence in the changed code.
+
+If uncertain, do not report the issue.
+
+Quality is significantly more important than quantity.
+
+---
+
+Review Process
+
+Perform the review in two distinct passes.
+
+Do not output findings after the first pass.
+
+---
+
+PASS 1 -- Technical Review
+
+Inspect every changed file, including both newly created files and modified existing files.
+
+Review all added or modified lines together with enough surrounding context to understand the change. For new files, review all added lines in the file.
+
+Evaluate the following areas.
+
+Correctness
+
+Look for:
+
+* Logic errors
+* Incorrect assumptions
+* Boundary conditions
+* Null handling
+* Empty values
+* Invalid state transitions
+* Missing validation
+* Incorrect calculations
+* Integer overflow
+* Floating-point precision problems
+* Off-by-one errors
+* Error propagation
+* Unexpected side effects
+
+---
+
+Security
+
+Look for:
+
+* SQL Injection
+* Command Injection
+* XSS
+* CSRF
+* SSRF
+* Path Traversal
+* File upload vulnerabilities
+* Authentication flaws
+* Authorization flaws
+* Broken access control
+* Sensitive data exposure
+* Hardcoded credentials
+* Secrets in logs
+* Weak cryptography
+* Insecure randomness
+* Unsafe deserialization
+
+---
+
+Performance
+
+Look for:
+
+* N+1 queries
+* Duplicate database queries
+* Missing batching
+* Inefficient loops
+* Repeated expensive operations
+* Memory waste
+* Unnecessary object creation
+* Blocking I/O
+* Large data structures
+* Unbounded recursion
+* Poor algorithm complexity
+
+---
+
+Reliability
+
+Look for:
+
+* Missing exception handling
+* Missing rollback
+* Missing cleanup
+* Missing retries
+* Missing timeout handling
+* Resource leaks
+* Silent failures
+* Improper logging
+* Missing monitoring considerations
+
+---
+
+Concurrency
+
+Look for:
+
+* Race conditions
+* Deadlocks
+* Lost updates
+* Duplicate processing
+* Missing synchronization
+* Transaction boundary issues
+* Lock ordering
+* Idempotency problems
+
+---
+
+Architecture
+
+Look for:
+
+* Layer violations
+* Tight coupling
+* Business logic in controllers
+* Dependency direction violations
+* Poor abstractions
+* Incorrect responsibility assignment
+* Code duplication
+* Separation of concerns violations
+
+---
+
+Maintainability
+
+Look for:
+
+* Complex methods
+* Poor readability
+* Duplicate logic
+* Difficult-to-test code
+* Magic numbers
+* Misleading names
+* Deep nesting
+* Hidden dependencies
+
+---
+
+API Design
+
+Look for:
+
+* Breaking API changes
+* Input validation
+* Error handling
+* HTTP semantics
+* Backward compatibility
+* Contract violations
+
+---
+
+Database
+
+Look for:
+
+* Transaction safety
+* Missing indexes
+* Inefficient queries
+* Lock contention
+* Unsafe migrations
+* Data consistency risks
+
+---
+
+Testing
+
+Determine whether the changed behavior appears insufficiently tested.
+
+Examples:
+
+* Missing unit tests
+* Missing integration tests
+* Missing regression tests
+* Untested edge cases
+
+---
+
+Record every potential issue internally.
+
+Do NOT output yet.
+
+---
+
+PASS 2 -- Reviewer QA
+
+Now critically review your own findings.
+
+For every finding ask:
+
+1. Is this definitely present in the changed code?
+2. Am I making assumptions not supported by the diff?
+3. Is this merely a personal preference?
+4. Would a senior engineer actually leave this comment?
+5. Is the issue already addressed elsewhere in the diff?
+6. Is the recommendation actionable?
+7. Is this comment valuable enough to justify interrupting the author's workflow?
+
+Discard findings that fail any of these questions.
+
+Merge duplicate findings.
+
+Merge related findings affecting the same code.
+
+Recalculate severity.
+
+Assign confidence.
+
+Only retain findings with:
+
+Confidence >= 0.80
+
+If there are no meaningful findings, return an empty array.
+
+---
+
+PR Assessment -- Problem Complexity & Fix Quality
+
+In addition to the findings above, every review produces two further, independent, PR-level assessments. These are never combined into a single score, and they are never a judgement of the developer -- only of this PR's problem and this PR's implementation.
+
+Problem Complexity
+
+Definition: how difficult the problem addressed by this PR actually is, considering both business and technical complexity. If a Business Context document is supplied below (after this prompt, before the PR context), use it to understand business rules, scenarios, and constraints relevant to complexity -- but do not use it to generate business-rule findings here; a separate review pass handles Business Context validation.
+
+Consider:
+
+* Business complexity -- number of business rules, business scenarios, exceptions, regulatory/compliance requirements, business dependencies, impact of incorrect behaviour.
+* Technical complexity -- number of components/modules involved, algorithmic complexity, data model changes, API changes, external integrations, distributed-system behaviour, state management, concurrency, backward compatibility, security requirements, performance requirements.
+* Scope complexity -- number of functional areas affected, multiple services/modules, database changes, API changes, configuration changes, infrastructure/deployment changes, data migration. Scope alone must never determine the classification by itself.
+* Edge-case complexity -- number of meaningful edge cases, failure scenarios, retry behaviour, duplicate requests, race conditions, partial failures, data consistency, backward compatibility.
+
+Classify as exactly one of:
+
+* LOW -- Straightforward problem with limited business and technical considerations.
+* MEDIUM -- Problem involving multiple conditions, moderate dependencies, or several implementation considerations.
+* HIGH -- Problem involving significant business rules, integrations, state management, architectural or technical considerations.
+* VERY_HIGH -- Problem involving substantial cross-system, distributed, regulatory, architectural, or business complexity.
+
+Provide a concise summary explaining the classification and a list of the specific factors that drove it.
+
+Fix Quality
+
+Definition: how effectively the implementation contained in this PR solves the identified problem, limited to what is in the diff and the context supplied to you. This is not a generalized assessment of the developer.
+
+Consider:
+
+* Correctness -- does the implementation solve the stated problem, correctly implement business rules, correctly handle relevant scenarios; are there functional defects?
+* Completeness -- are the stated requirements addressed, are important edge cases handled, are failure paths considered, are required supporting changes included?
+* Design quality -- separation of concerns, modularity, appropriate abstraction, architectural consistency, avoidance of unnecessary complexity.
+* Maintainability -- readability, naming, code structure, duplication, ease of future modification, appropriate documentation/comments.
+* Robustness -- input validation, error handling, retry behaviour, idempotency, concurrency considerations, unexpected inputs, failure recovery.
+* Testing -- unit/integration/regression tests, negative scenarios, edge cases, whether appropriate tests were added or modified.
+* Security (where applicable) -- authentication, authorization, input validation, sensitive-data handling, secrets, injection risks, sensitive information in logs.
+* Performance (where applicable) -- database queries, algorithmic efficiency, network calls, memory usage, N+1 queries, unnecessary processing, caching.
+
+Classify as exactly one of:
+
+* POOR -- Does not adequately solve the problem or introduces significant issues.
+* NEEDS_IMPROVEMENT -- Solves the primary problem but has important quality gaps.
+* GOOD -- Correct and reasonably maintainable implementation with no major issues.
+* STRONG -- Well-designed, robust, appropriately tested implementation.
+* EXCEPTIONAL -- Particularly comprehensive and robust solution with strong design and implementation quality.
+
+Provide a concise summary, a list of concrete strengths, and a list of concrete areas for improvement -- each grounded in evidence from the diff, tests, or supplied context, never speculation.
+
+Assessment Rules
+
+* Assess Problem Complexity and Fix Quality independently -- never derive one from the other.
+* Ground every assessment in evidence: the PR description, the Business Context (if supplied), the code changes, existing relevant code visible in the diff, tests, and configuration/database/API changes where applicable.
+* Never infer or report the overall capability, quality, performance, or proficiency of the developer who authored the PR.
+* These assessments apply only to this PR -- never combine them with, or reference, any other PR.
+* Use only the categorical levels defined above. Do not invent a numerical score.
+
+---
+
+Database Recommendations (DB Cross-Check Advisory)
+
+In addition to the findings and PR Assessment above, identify database-related implications introduced or modified by this PR, and return them as a separate, additive `db_recommendations` list. This never replaces, weakens, or skips any of the review checks above -- it runs alongside them.
+
+Analyze SQL, ORM queries, migrations, schema changes, database models, repository/data-access code, and related configuration visible in the diff for:
+
+* Schema changes -- CREATE TABLE, ALTER TABLE, DROP TABLE, RENAME TABLE, ADD/MODIFY/DROP COLUMN, column type changes, nullable/default changes, primary key changes, unique constraint changes, foreign key changes, index changes.
+* Index-related changes -- new indexes, potentially required indexes, missing-index risk, potentially redundant/duplicate indexes, column-ordering that may need verification, filter/join/sort columns that may require an index, potentially expensive indexes on high-write tables.
+* Query-related changes -- new WHERE/JOIN/ORDER BY/GROUP BY conditions, queries touching multiple columns or potentially large tables, queries that may benefit from a composite index, queries where an existing index may no longer be appropriate.
+* Migration/compatibility concerns -- whether a schema change appears to require a migration, and whether it could be backward-incompatible with code or data already in production.
+
+Critical rule -- never assume database state: you have no database connectivity and must never claim that an index, column, constraint, migration, or schema change exists or does not exist, unless that fact is directly supported by the reviewed code/repository evidence itself. Do not assume that migration files, ORM models, schema files, or repository code represent the current production database state. When the actual database state is relevant, produce a DB Cross-Check Recommendation describing exactly what should be manually verified in the database instead of asserting the fact -- e.g. write "Verify whether an index exists on customer.mobile_number before deploying this query" rather than "Index customer_mobile_number is missing."
+
+Every item in `db_recommendations` must clearly describe (a) what the code suggests, and (b) what should be manually cross-checked in the actual database.
+
+`type` must be exactly one of:
+
+* INDEX_CHECK
+* INDEX_CREATE
+* INDEX_REDUNDANCY_CHECK
+* INDEX_USAGE_CHECK
+* ALTER_TABLE_CHECK
+* SCHEMA_CHANGE_CHECK
+* COLUMN_EXISTENCE_CHECK
+* COLUMN_TYPE_CHECK
+* CONSTRAINT_CHECK
+* MIGRATION_CHECK
+* QUERY_PERFORMANCE_CHECK
+* DB_COMPATIBILITY_CHECK
+* PRODUCTION_DB_VERIFICATION
+
+`severity` must be exactly one of INFO, LOW, MEDIUM, HIGH, CRITICAL -- based on technical risk if the database turns out to be in the state the code assumes, never automatically treated as a code-review defect:
+
+* INFO -- purely informational DB verification.
+* LOW -- minor recommendation.
+* MEDIUM -- DB verification should be performed before release.
+* HIGH -- potential production impact if DB state is inconsistent with what the code assumes.
+* CRITICAL -- potential severe production/data-impacting risk (e.g. an unguarded destructive schema operation).
+
+`requires_db_verification` is `true` unless the item is purely informational and needs no manual check.
+
+If this PR introduces no database-related changes, return `db_recommendations` as an empty array -- do not fabricate recommendations. This never causes the rest of the review to fail or be skipped.
+
+---
+
+Flow Diagram (Optional)
+
+In addition to everything above, decide whether a small Mermaid diagram of the PR's changed execution flow would materially improve a reviewer's understanding, and return it as an optional `flow_diagram` section. This is additive -- it never replaces or weakens any check above.
+
+Do not attempt to visualize the entire application. Focus only on the flow affected by this PR's changes.
+
+Generate a diagram only when the changed code contains a meaningful flow, such as:
+
+* API/request processing
+* Service-to-service interaction
+* Payment/transaction processing
+* Database interaction
+* External system interaction
+* Authentication/authorization flow
+* Queue/event processing
+* Complex business logic, conditional processing, or multi-step workflows
+* State transitions
+
+Do not generate a diagram for trivial changes -- simple variable changes, formatting, simple configuration changes, minor refactoring with no meaningful flow change, or unit-test-only changes. When in doubt, prefer not generating one: `"applicable": false`.
+
+If a diagram is applicable, choose the simplest diagram type that explains the flow:
+
+* `sequence` (renders as `sequenceDiagram`) -- interactions between an API/client, application services, classes/components, a database, a queue, or external systems.
+* `flowchart` (renders as `flowchart TD`) -- business rules, validation, conditions, branching, or processing steps.
+* `state` (renders as `stateDiagram-v2`) -- only when state transitions are central to the change.
+
+Keep it small and understandable in about 30 seconds by a developer unfamiliar with this code: show only the important components and steps, prefer business/component names over obscure variable names, avoid excessive branching, avoid duplicate nodes, and never show every function or line of code. The diagram must be based on the actual reviewed code -- never invent components, flows, API calls, database operations, or behavior that cannot be reasonably established from the diff. If the flow cannot be confidently determined from the diff, do not generate a diagram. Generate at most one diagram for the whole review, covering the single most important changed flow -- never one diagram per finding/function.
+
+`mermaid` must contain only the raw Mermaid body (starting with `flowchart TD`, `sequenceDiagram`, or `stateDiagram-v2` on its first line) -- no markdown code fences, no prose, no explanation inside it.
+
+When applicable:
+
+```json
+"flow_diagram": {
+  "applicable": true,
+  "diagram_type": "flowchart",
+  "explanation": "One or two sentences on what the diagram shows.",
+  "mermaid": "flowchart TD\n    A[Create VPA] --> B[Check UPI Number]\n    B --> C{Already Mapped?}\n    C -->|No| D[Create Mapping]",
+  "relevant_files": ["VpaService.php", "UpiNumberService.php"]
+}
+```
+
+When not applicable:
+
+```json
+"flow_diagram": {"applicable": false}
+```
+
+`flow_diagram` is required in every response (use `{"applicable": false}` when no diagram is warranted). An omitted or malformed `flow_diagram` never fails the review -- it is simply treated as no diagram.
+
+---
+
+Comment Guidelines
+
+Every comment should include:
+
+* What is wrong.
+* Why it matters.
+* Potential production impact.
+* High-level recommendation.
+
+Do not include lengthy explanations.
+
+Maximum four sentences.
+
+Do not generate replacement code unless absolutely required to explain the issue.
+
+---
+
+Ignore
+
+Never comment on:
+
+* Whitespace
+* Formatting
+* Import ordering
+* Personal style
+* Minor naming preferences
+* Existing legacy code not modified
+* Missing documentation unless a new public API is introduced
+* TODO comments that already existed before this PR
+
+---
+
+Severity
+
+One of:
+
+* CRITICAL
+* HIGH
+* MEDIUM
+* LOW
+* SUGGESTION
+
+Severity should reflect real production impact.
+
+---
+
+Confidence
+
+Return a confidence score between:
+
+0.00 and 1.00
+
+Only return findings with confidence >= 0.80.
+
+---
+
+Categories
+
+Use exactly one category.
+
+Allowed values:
+
+* Correctness
+* Security
+* Performance
+* Reliability
+* Concurrency
+* Architecture
+* Maintainability
+* Database
+* API
+* Testing
+* General
+
+---
+
+Output Requirements
+
+Return only valid JSON.
+
+Do not include:
+
+* Markdown
+* Code fences
+* Explanations
+* Headings
+* Bullet lists
+* Notes
+* Any text outside the JSON document
+
+Schema:
+
+{
+  "summary": {
+    "what_changed": "High-level description of what changed in this PR.",
+    "files_modified": [
+      "relative/path/existing_file.php",
+      "relative/path/new_file.php [NEW]"
+    ],
+    "high_level_impact": "Summary of system/architectural impact, performance risks, or behavior changes.",
+    "potential_review_focus": "Key areas and logic flows that human reviewers should focus on."
+  },
+  "findings": [
+    {
+      "file": "relative/path/existing_file.php",
+      "line": 125,
+      "severity": "HIGH",
+      "confidence": 0.94,
+      "category": "Security",
+      "title": "Potential SQL Injection",
+      "comment": "User-controlled input is concatenated directly into the SQL query. This could allow SQL injection if the value is not trusted. Use parameterized queries or the project's database abstraction to safely bind user input."
+    }
+  ],
+  "problem_complexity": {
+    "level": "HIGH",
+    "summary": "One or two sentences explaining the complexity classification.",
+    "factors": [
+      "Concrete factor that drove the classification",
+      "Another concrete factor"
+    ]
+  },
+  "fix_quality": {
+    "level": "STRONG",
+    "summary": "One or two sentences explaining the fix quality classification.",
+    "strengths": [
+      "Concrete strength grounded in the diff"
+    ],
+    "improvements": [
+      "Concrete, actionable area for improvement"
+    ]
+  },
+  "db_recommendations": [
+    {
+      "type": "INDEX_CHECK",
+      "severity": "MEDIUM",
+      "table": "customer",
+      "columns": ["mobile_number"],
+      "recommendation": "Verify that an appropriate index exists on customer.mobile_number.",
+      "reason": "The PR introduces a query filtering on mobile_number.",
+      "requires_db_verification": true
+    }
+  ],
+  "flow_diagram": {
+    "applicable": true,
+    "diagram_type": "flowchart",
+    "explanation": "The PR changes the UPI Number mapping flow.",
+    "mermaid": "flowchart TD\n    A[Create VPA] --> B[Check UPI Number]\n    B --> C{Already Mapped?}\n    C -->|No| D[Create Mapping]",
+    "relevant_files": ["VpaService.php", "UpiNumberService.php"]
+  }
+}
+
+In "files_modified", list all modified file paths. Append " [NEW]" to the file path if it is a newly created file.
+
+"problem_complexity.level" must be exactly one of LOW, MEDIUM, HIGH, VERY_HIGH.
+"fix_quality.level" must be exactly one of POOR, NEEDS_IMPROVEMENT, GOOD, STRONG, EXCEPTIONAL.
+Both "problem_complexity" and "fix_quality" are required in every response, even when "findings" is empty.
+"db_recommendations" is required in every response (use an empty array "[]" when this PR has no database-related changes); each item's "type" and "severity" must use exactly the values defined above.
+"flow_diagram" is required in every response; use {"applicable": false} when no diagram is warranted (this will be the common case for most PRs -- only generate one when it materially helps, per the Flow Diagram section above).
+
+If there are no findings, return "findings" as an empty array; "problem_complexity" and "fix_quality" are still required:
+
+{
+  "summary": {
+    "what_changed": "High-level description of what changed in this PR.",
+    "files_modified": [
+      "relative/path/existing_file.php",
+      "relative/path/new_file.php [NEW]"
+    ],
+    "high_level_impact": "Summary of system/architectural impact, performance risks, or behavior changes.",
+    "potential_review_focus": "Key areas and logic flows that human reviewers should focus on."
+  },
+  "findings": [],
+  "problem_complexity": {
+    "level": "LOW",
+    "summary": "One or two sentences explaining the complexity classification.",
+    "factors": []
+  },
+  "fix_quality": {
+    "level": "GOOD",
+    "summary": "One or two sentences explaining the fix quality classification.",
+    "strengths": [],
+    "improvements": []
+  },
+  "db_recommendations": [],
+  "flow_diagram": {"applicable": false}
+}
+
+---
+
+Pull Request Context
+
+The wrapper application will append the following sections after this prompt:
+
+* Repository Name
+* Pull Request Number
+* Pull Request Title
+* Pull Request Description
+* Base Branch
+* Head Branch
+* Commit Messages
+* Changed Files
+* Unified Diff
+
+Only review the supplied changes.
+
+Do not assume access to any additional files.
+
+Do not invent project context.
+
+Base your review solely on the supplied information.
+
+
+---
+
+Repository Name: OneStackIndia/core-php
+
+Pull Request Number: 3346082970
+
+Pull Request Title: Compare pc_android_ios into onestackcbs
+
+Pull Request Description:
+(none)
+
+Base Branch: onestackcbs
+
+Head Branch: pc_android_ios
+
+Commit Messages:
+- Revert unrelated fixes - scope back to the iOS manual version bug only
+- Use version_compare consistently for the iOS min==max decision
+- Fix transaction connection mismatch and Android min/max regression
+- Fix metadata carry-forward for min==max saves and validate min<=max
+- Apply code-review findings: version format check, restore data.ios, preserve build metadata, gate UPI QR notifications
+- Fix admin/API picking the wrong iOS row after a min/max save
+- Fix IOS manual/min version showing stale value via dedupe-on-save
+- Merge branch 'onestackcbs' of https://github.com/OneStackIndia/core-php into pc_android_ios
+- Merge pull request #13405 from OneStackIndia/sg_cl_whatsapp_body_encoding
+- Merge pull request #13406 from OneStackIndia/sg_cl_disable_legacy_admin_add_user
+- Merge branch 'onestackcbs' of https://github.com/OneStackIndia/core-php into sg_cl_disable_legacy_admin_add_user
+- Merge branch 'onestackcbs' of https://github.com/OneStackIndia/core-php into sg_cl_whatsapp_body_encoding
+- Merge pull request #13403 from OneStackIndia/pc_ownership_type_changes
+- stop notifications
+- Merge branch 'onestackcbs' of https://github.com/OneStackIndia/core-php into pc_ownership_type_changes
+- seller status and p2m condition
+- Comment out legacy admin Users::addUser()
+- Merge branch 'onestackcbs' of https://github.com/OneStackIndia/core-php into sg_cl_whatsapp_body_encoding
+- Merge branch 'onestackcbs' of https://github.com/OneStackIndia/core-php into sg_cl_whatsapp_body_encoding
+- rawurlencode() the remaining Gupshup WhatsApp request body fields
+- version changes
+- fix check_version_api_get null safety and version compare
+- Merge branch 'onestackcbs' of https://github.com/OneStackIndia/core-php into pc_android_ios
+- min and max version changes
+
+Changed Files:
+- application/controllers/admin/Users.php
+- application/libraries/common/CommonFunctions.php
+- application/modules/cbs/controllers/BankManagement.php
+- application/modules/cbs/models/CompanyMaster_model.php
+- application/modules/cbs/views/bank-management/app-link.php
+- application/modules/mobile_app/controllers/apiv6/Profile.php
+- application/modules/mobile_app/controllers/communication/CommunicationWhatsapp.php
+- application/modules/mobile_app/models/bank_onboarding_form/CompanyMaster_model.php
+
+Unified Diff:
+diff --git a/application/controllers/admin/Users.php b/application/controllers/admin/Users.php
+index 0c00aaf58b..49298511a5 100644
+--- a/application/controllers/admin/Users.php
++++ b/application/controllers/admin/Users.php
+@@ -179,167 +179,169 @@ class Users extends Admin_Controller
+ 
+ 		$this->template->admin_render('admin/users/my_profile', $this->data);
+ 	}
+-	public function addUser()
+-	{
+-		$heading = 'Add User';
+-
+-		//$companyID = $this->session->userdata('company_id');
+-		$companyID = $this->input->post('company_id');
+-		if(!empty($companyID)){
+-			$result = getCompanyLogo($companyID);
+-			$this->data['company_logo'] = $result['company_logo'];
+-		}
+-		else{
+-			$this->data['company_logo'] = '';
+-		}
+-
+-		$this->page_title->push($heading);
+-		$this->breadcrumbs->unshift(2, $heading, 'admin/users_list-view/users');
+-
+-		$this->data['pageHeader']	= $heading;
+-		$this->data['pagetitle']	= $this->page_title->show();
+-		$this->data['breadcrumb']	= $this->breadcrumbs->show();
+-
+-		$formData = array();
+-
+-		$formData['id'] = 0;
+-
+-		$this->data['formData'] = $formData;
+-
+-		$this->data['allRoles'] = $this->CommonModel->select(DbTable::ROLE_MASTER, 'id, role_name', array('status !=' => '-1'));
+-
+-
+-		//Companies
+-		$this->db->select('comp.id, comp.company_name');
+-		$this->db->from(DbTable::COMPANY_MASTER.' comp');
+-		//$this->db->where('comp.company_status', 'Active');
+-		$query = $this->db->get();
+-		$allBanks =  $query->result_array();
+-		$this->data['allBanks'] = $allBanks;
+-
+-
+-		//Partners
+-		$this->db->select('part.id, part.partner_name');
+-		$this->db->from(DbTable::PARTNER_MASTER.' part');
+-		//$this->db->where('part.status', '1');
+-		$query = $this->db->get();
+-		$allPartners =  $query->result_array();
+-		$this->data['allPartners'] = $allPartners;
+-
+-		if($this->input->server('REQUEST_METHOD') == "POST")
+-		{ 
+-			$this->form_validation->set_rules('first_name', 'first name', 'trim|required|max_length[100]');
+-			$this->form_validation->set_rules('last_name', 'last name', 'trim|required|max_length[100]');
+-			//$this->form_validation->set_rules('company', 'company', 'trim|required|max_length[100]');
+-			$this->form_validation->set_rules('email', 'email', 'trim|required|max_length[100]|valid_email|is_unique[tbl_users.email]');
+-			//$this->form_validation->set_rules('username', 'username', 'trim|required|max_length[100]|is_unique[tbl_users.username]');
+-			$this->form_validation->set_rules('phone', 'phone', 'trim|required|max_length[10]|numeric|is_unique[tbl_users.phone]');
+-			$this->form_validation->set_rules('role_id', 'role', 'trim|required');
+-			//$this->form_validation->set_rules('password', 'password', 'trim|required|max_length[100]');
+-			//$this->form_validation->set_rules('confirm_password', 'confirm password', 'trim|required|matches[password]');
+-
+-			$this->form_validation->set_message($this->config->item('validation_messages'));
+-
+-			if ($this->form_validation->run())
+-			{ 
+-				$username	= $this->input->post('username');
+-				$email		= strtolower($this->input->post('email'));
+-				//$password	= $this->input->post('password');
+-				$password	= generate_secure_random_string(8);
+-				$resetOtp 	= generate_secure_random_string(6);
+-				$resetPwdLink = base_url('reset-password/'.$resetOtp);
+-					 
+-				//User Password File
+-			    // $myfile = fopen("user_password_log.txt", "a") or die("Unable to open file!");
+-			    // $txt = "Email Id : " . $email . " Password: " . $password . " Reset Password Link: " . $resetPwdLink ."\n";
+-			    // fwrite($myfile, $txt);
+-			    // fclose($myfile);
+-
+-				$additional_data = array(
+-					'first_name'	=> $this->input->post('first_name'),
+-					'last_name'		=> $this->input->post('last_name'),
+-					'company_id'		=> $this->input->post('company_id'),
+-					'partner_id'		=> $this->input->post('partner_id'),
+-					'phone'			=> $this->input->post('phone'),
+-					'role_id'		=> $this->input->post('role_id'),
+-					'branch_id'		=> 0,
+-				); 
+-
+-				//Email Template
+-				$sendPasswordToCompanyUserLink = base_url().'send-password-to-company-user-email?password='.$password;
+-
+-				$condition	= array('slug' => 'login_credentials_emailer');
+-				$template	= $this->CommonModel->select(DbTable::EMAIL_TEMPLATE, '*', $condition);
+-
+-				$this->load->helper('email_helper');
+-
+-				$emailSubject = $template[0]['email_subject'];
+-				$templateId = $template[0]['id'];
+-				$toReplace = array(
+-					'{onestack_logo}'	=> base_url('assets/custom/images/onestack-logo.png'),
+-					'{first_name}'		=> $this->input->post('first_name'),
+-					'{last_name}'		=> $this->input->post('last_name'),
+-					'{email}'			=> $this->input->post('email'),
+-					'{password}'		=> $password,
+-					'{console_url}'		=> 	base_url(),
+-					'{reset_pwd_link}'	=> $resetPwdLink,
+-				); 
+-				$emailMessage = strtr($template[0]['template'], $toReplace);
+-				$extraParams = array("template_id" => $templateId);
+-				$companyID = '15';
+-				//Get active company with email services
+-                /*$this->db->select('cm.id, cm.company_status, cmm.module_id'); 
+-	            $this->db->from(DbTable::COMPANY_MASTER.' AS cm');
+-	            $this->db->join(DbTable::COMPANY_MODULE_MAPPING.' AS cmm', 'cm.id = cmm.company_id', 'left');
+-	            $this->db->where('cm.company_status', 'Active');
+-	            $this->db->where('cm.onboarding_status !=','Incomplete');
+-	            $this->db->where('cmm.module_id', '6');
+-	            $this->db->order_by('cm.id', 'ASC');
+-	            $this->db->limit(1);
+-	            $query = $this->db->get();            
+-	            $activeCompany = $query->result_array();
+-	            //$companyID = $activeCompany[0]['id'];
+-	            if($companyID == '' || $companyID == 0){
+-	            	$company_data  = "SELECT `id` FROM `tbl_company_master` WHERE `onestack_id` = 'onestack'";
+-					$companyDetails   = $this->CommonModel->sql($company_data);
+-	            	$companyID=$companyDetails[0]['id'];
+-	            }else{
+-	            	$companyID=$companyID;
+-	            }*/
+-
+-	            //echo $this->db->last_query(). " / ". $companyID." / ".$email." / ".$emailSubject." / ".$emailMessage."<pre>"; print_r($extraParams); echo "</pre>"; exit();
+-
+-				$send = send_mail($companyID, $email, $emailSubject, $emailMessage, $extraParams);
+-
+-				if(!$send)
+-				{
+-					setAlert("Unable to send email", 'error');
+-				}
+-
+-				if($insert_id = $this->ion_auth->register($username, $password, $email, $additional_data))
+-				{
+-					$resetData = array(
+-						'email'		=> $email,
+-						'user_id'	=> $insert_id,
+-						'token'		=> $resetOtp,
+-						'status'	=> '0'
+-					);
+-
+-					if($this->CommonModel->create(DbTable::USER_RESET_PASSWORD, $resetData))
+-					{
+-						setAlert('User created successfully');
+-						redirect('admin/users_list-view/users');
+-					}
+-				}
+-				else
+-				{
+-					setAlert($this->ion_auth->messages(), 'error');
+-				}
+-			}
+-		}
+-
+-		$this->template->admin_render('admin/users/users_form', $this->data);
+-	}
++	// Disabled: legacy copy with no access check, reachable at /admin/users/addUser.
++	// No route or view calls it; the live screen is mobile_app/Users::addUser().
++// 	public function addUser()
++// 	{
++// 		$heading = 'Add User';
++// 
++// 		//$companyID = $this->session->userdata('company_id');
++// 		$companyID = $this->input->post('company_id');
++// 		if(!empty($companyID)){
++// 			$result = getCompanyLogo($companyID);
++// 			$this->data['company_logo'] = $result['company_logo'];
++// 		}
++// 		else{
++// 			$this->data['company_logo'] = '';
++// 		}
++// 
++// 		$this->page_title->push($heading);
++// 		$this->breadcrumbs->unshift(2, $heading, 'admin/users_list-view/users');
++// 
++// 		$this->data['pageHeader']	= $heading;
++// 		$this->data['pagetitle']	= $this->page_title->show();
++// 		$this->data['breadcrumb']	= $this->breadcrumbs->show();
++// 
++// 		$formData = array();
++// 
++// 		$formData['id'] = 0;
++// 
++// 		$this->data['formData'] = $formData;
++// 
++// 		$this->data['allRoles'] = $this->CommonModel->select(DbTable::ROLE_MASTER, 'id, role_name', array('status !=' => '-1'));
++// 
++// 
++// 		//Companies
++// 		$this->db->select('comp.id, comp.company_name');
++// 		$this->db->from(DbTable::COMPANY_MASTER.' comp');
++// 		//$this->db->where('comp.company_status', 'Active');
++// 		$query = $this->db->get();
++// 		$allBanks =  $query->result_array();
++// 		$this->data['allBanks'] = $allBanks;
++// 
++// 
++// 		//Partners
++// 		$this->db->select('part.id, part.partner_name');
++// 		$this->db->from(DbTable::PARTNER_MASTER.' part');
++// 		//$this->db->where('part.status', '1');
++// 		$query = $this->db->get();
++// 		$allPartners =  $query->result_array();
++// 		$this->data['allPartners'] = $allPartners;
++// 
++// 		if($this->input->server('REQUEST_METHOD') == "POST")
++// 		{ 
++// 			$this->form_validation->set_rules('first_name', 'first name', 'trim|required|max_length[100]');
++// 			$this->form_validation->set_rules('last_name', 'last name', 'trim|required|max_length[100]');
++// 			//$this->form_validation->set_rules('company', 'company', 'trim|required|max_length[100]');
++// 			$this->form_validation->set_rules('email', 'email', 'trim|required|max_length[100]|valid_email|is_unique[tbl_users.email]');
++// 			//$this->form_validation->set_rules('username', 'username', 'trim|required|max_length[100]|is_unique[tbl_users.username]');
++// 			$this->form_validation->set_rules('phone', 'phone', 'trim|required|max_length[10]|numeric|is_unique[tbl_users.phone]');
++// 			$this->form_validation->set_rules('role_id', 'role', 'trim|required');
++// 			//$this->form_validation->set_rules('password', 'password', 'trim|required|max_length[100]');
++// 			//$this->form_validation->set_rules('confirm_password', 'confirm password', 'trim|required|matches[password]');
++// 
++// 			$this->form_validation->set_message($this->config->item('validation_messages'));
++// 
++// 			if ($this->form_validation->run())
++// 			{ 
++// 				$username	= $this->input->post('username');
++// 				$email		= strtolower($this->input->post('email'));
++// 				//$password	= $this->input->post('password');
++// 				$password	= generate_secure_random_string(8);
++// 				$resetOtp 	= generate_secure_random_string(6);
++// 				$resetPwdLink = base_url('reset-password/'.$resetOtp);
++// 					 
++// 				//User Password File
++// 			    // $myfile = fopen("user_password_log.txt", "a") or die("Unable to open file!");
++// 			    // $txt = "Email Id : " . $email . " Password: " . $password . " Reset Password Link: " . $resetPwdLink ."\n";
++// 			    // fwrite($myfile, $txt);
++// 			    // fclose($myfile);
++// 
++// 				$additional_data = array(
++// 					'first_name'	=> $this->input->post('first_name'),
++// 					'last_name'		=> $this->input->post('last_name'),
++// 					'company_id'		=> $this->input->post('company_id'),
++// 					'partner_id'		=> $this->input->post('partner_id'),
++// 					'phone'			=> $this->input->post('phone'),
++// 					'role_id'		=> $this->input->post('role_id'),
++// 					'branch_id'		=> 0,
++// 				); 
++// 
++// 				//Email Template
++// 				$sendPasswordToCompanyUserLink = base_url().'send-password-to-company-user-email?password='.$password;
++// 
++// 				$condition	= array('slug' => 'login_credentials_emailer');
++// 				$template	= $this->CommonModel->select(DbTable::EMAIL_TEMPLATE, '*', $condition);
++// 
++// 				$this->load->helper('email_helper');
++// 
++// 				$emailSubject = $template[0]['email_subject'];
++// 				$templateId = $template[0]['id'];
++// 				$toReplace = array(
++// 					'{onestack_logo}'	=> base_url('assets/custom/images/onestack-logo.png'),
++// 					'{first_name}'		=> $this->input->post('first_name'),
++// 					'{last_name}'		=> $this->input->post('last_name'),
++// 					'{email}'			=> $this->input->post('email'),
++// 					'{password}'		=> $password,
++// 					'{console_url}'		=> 	base_url(),
++// 					'{reset_pwd_link}'	=> $resetPwdLink,
++// 				); 
++// 				$emailMessage = strtr($template[0]['template'], $toReplace);
++// 				$extraParams = array("template_id" => $templateId);
++// 				$companyID = '15';
++// 				//Get active company with email services
++//                 /*$this->db->select('cm.id, cm.company_status, cmm.module_id'); 
++// 	            $this->db->from(DbTable::COMPANY_MASTER.' AS cm');
++// 	            $this->db->join(DbTable::COMPANY_MODULE_MAPPING.' AS cmm', 'cm.id = cmm.company_id', 'left');
++// 	            $this->db->where('cm.company_status', 'Active');
++// 	            $this->db->where('cm.onboarding_status !=','Incomplete');
++// 	            $this->db->where('cmm.module_id', '6');
++// 	            $this->db->order_by('cm.id', 'ASC');
++// 	            $this->db->limit(1);
++// 	            $query = $this->db->get();            
++// 	            $activeCompany = $query->result_array();
++// 	            //$companyID = $activeCompany[0]['id'];
++// 	            if($companyID == '' || $companyID == 0){
++// 	            	$company_data  = "SELECT `id` FROM `tbl_company_master` WHERE `onestack_id` = 'onestack'";
++// 					$companyDetails   = $this->CommonModel->sql($company_data);
++// 	            	$companyID=$companyDetails[0]['id'];
++// 	            }else{
++// 	            	$companyID=$companyID;
++// 	            }*/
++// 
++// 	            //echo $this->db->last_query(). " / ". $companyID." / ".$email." / ".$emailSubject." / ".$emailMessage."<pre>"; print_r($extraParams); echo "</pre>"; exit();
++// 
++// 				$send = send_mail($companyID, $email, $emailSubject, $emailMessage, $extraParams);
++// 
++// 				if(!$send)
++// 				{
++// 					setAlert("Unable to send email", 'error');
++// 				}
++// 
++// 				if($insert_id = $this->ion_auth->register($username, $password, $email, $additional_data))
++// 				{
++// 					$resetData = array(
++// 						'email'		=> $email,
++// 						'user_id'	=> $insert_id,
++// 						'token'		=> $resetOtp,
++// 						'status'	=> '0'
++// 					);
++// 
++// 					if($this->CommonModel->create(DbTable::USER_RESET_PASSWORD, $resetData))
++// 					{
++// 						setAlert('User created successfully');
++// 						redirect('admin/users_list-view/users');
++// 					}
++// 				}
++// 				else
++// 				{
++// 					setAlert($this->ion_auth->messages(), 'error');
++// 				}
++// 			}
++// 		}
++// 
++// 		$this->template->admin_render('admin/users/users_form', $this->data);
++// 	}
+ 
+ 	public function editUser($id)
+ 	{
+diff --git a/application/libraries/common/CommonFunctions.php b/application/libraries/common/CommonFunctions.php
+index 1a9e4a298f..7c132a02fd 100644
+--- a/application/libraries/common/CommonFunctions.php
++++ b/application/libraries/common/CommonFunctions.php
+@@ -1652,7 +1652,7 @@ class CommonFunctions
+ 			$upi_det = $this->ci->CommonModel->select(DbTable::UPI_ID, 'upi_qr_type', array('id' => $upi_table_id));
+ 			$upi_qr_type = isset($upi_det[0]['upi_qr_type']) && $upi_det[0]['upi_qr_type'] != '' ? $upi_det[0]['upi_qr_type'] : '';
+ 			if($upi_qr_type != 'UPI 2.0') {
+-				$this->sendUpiQrGenerationSms($sms_params);
++				// $this->sendUpiQrGenerationSms($sms_params);
+ 				//Whatsapp message functionality 
+ 				$method = "UpiQrGeneration";
+ 				$customer_params = array();
+@@ -1663,7 +1663,7 @@ class CommonFunctions
+ 				$customer_params['sub_mobile_no'] = $sub_mobile_no;
+ 				$customer_params['company_communication_name'] = $communication_name;
+ 				$customer_params['qr_pdf'] = $qr_pdf;
+-				$this->sendWhatsappMessage($method, '', $customer_params);
++				// $this->sendWhatsappMessage($method, '', $customer_params);
+ 			}
+ 			return $qr_pdf;
+ 		} else {
+diff --git a/application/modules/cbs/controllers/BankManagement.php b/application/modules/cbs/controllers/BankManagement.php
+index d33ac31331..ea628a0d13 100644
+--- a/application/modules/cbs/controllers/BankManagement.php
++++ b/application/modules/cbs/controllers/BankManagement.php
+@@ -8740,13 +8740,30 @@ class BankManagement extends Admin_Controller
+             $formData['app_store_link_status'] = $playstore_appstore_link_data[0]['app_store_link_status'];
+         }
+ 
+-        $iosBuildInfo = $this->CommonModel->select(DbTable::COMPANY_APK_FILES, 'apk_version', array(
++        //Filtered explicitly by the min_version flag (not just 'id desc') so the max/manual
++        //version box always shows the row that was actually saved as the max - not whichever
++        //of the two rows happened to be inserted last (the min row is always inserted after
++        //the max row when they differ, so 'id desc' alone would pick the min row instead).
++        $iosBuildInfo = $this->CommonModel->select(DbTable::COMPANY_APK_FILES, 'id, apk_version, min_version', array(
+             'company_id' => $bank_id,
+             'device_type' => 'ios',
+             'build_status' => 'Completed',
+             'status' => 'Active',
++            'min_version' => 0,
+         ), 'id desc');
+-        $formData['ios_manual_version'] = !empty($iosBuildInfo) ? $iosBuildInfo[0]['apk_version'] : '';
++
++        $iosMinBuildInfo = $this->CommonModel->select(DbTable::COMPANY_APK_FILES, 'id, apk_version', array(
++            'company_id' => $bank_id,
++            'device_type' => 'ios',
++            'build_status' => 'Completed',
++            'status' => 'Active',
++            'min_version' => 1
++        ), 'id desc');
++
++        //When min and max were saved as the same value, only one row exists (flagged min_version=1),
++        //so the max box falls back to that row instead of coming up empty.
++        $formData['ios_manual_version'] = !empty($iosBuildInfo) ? $iosBuildInfo[0]['apk_version'] : (!empty($iosMinBuildInfo) ? $iosMinBuildInfo[0]['apk_version'] : '');
++        $formData['ios_min_version'] = !empty($iosMinBuildInfo) ? $iosMinBuildInfo[0]['apk_version'] : $formData['ios_manual_version'];
+ 
+         $formData['page_name'] = $pageName;
+         $this->data['formData'] = $formData;
+@@ -8762,27 +8779,102 @@ class BankManagement extends Admin_Controller
+         if ($this->input->server('REQUEST_METHOD') == "POST") {
+             $bank_id = getCompanyIdBySlug($this->input->post('slug'));
+             $iosManualVersion = trim($this->input->post('ios_manual_version'));
++            $iosMinVersion = trim($this->input->post('ios_min_version'));
++            if ($iosMinVersion === '') {
++                $iosMinVersion = $iosManualVersion;
++            }
++
++            //Format only - not an ordering check, since whichever value is saved most recently is
++            //meant to take effect as the max regardless of whether it is numerically lower or higher.
++            $versionFormat = '/^\d+(\.\d+)*$/';
++            if ($iosManualVersion !== '' && (!preg_match($versionFormat, $iosManualVersion) || !preg_match($versionFormat, $iosMinVersion))) {
++                echo json_encode(array('status' => 0, 'message' => 'IOS version must be in a valid numeric format, e.g. 1.2.3'));
++                return;
++            }
++
++            //Unlike which SAVE wins on repeat saves (intentionally not compared - see above), a
++            //min above the max within the SAME save is an invalid combined state: any client that
++            //force-updates when installed < min would push every iOS user to a version above the
++            //advertised latest.
++            if ($iosManualVersion !== '' && version_compare($iosMinVersion, $iosManualVersion, '>')) {
++                echo json_encode(array('status' => 0, 'message' => 'IOS minimum version cannot be greater than the latest/maximum version'));
++                return;
++            }
++
++            //Compared the same way as the ordering check above (version_compare, not string
++            //equality) so e.g. min='1.0' and max='1.0.0' are treated as the same version - a
++            //strict string comparison would disagree with version_compare on whether these are
++            //equal, causing the ordering check and the single-row-vs-two-row decision to conflict.
++            $iosVersionsEqual = version_compare($iosMinVersion, $iosManualVersion, '==');
+ 
+             if ($bank_id && $iosManualVersion !== '') {
+-                $existingIosBuild = $this->CommonModel->select(DbTable::COMPANY_APK_FILES, 'id', array(
++                //Carry forward any build metadata already on the current max row, since the
++                //deactivate-then-insert below replaces it with a fresh row that otherwise would
++                //not have these set - get-versions falls back to siteload_bitly_link for the
++                //redirect when the App Store link is off. Falls back to the min-flagged row when
++                //the last save had min == max (a single row, flagged min_version=1, not 0).
++                $existingIosMaxRow = $this->CommonModel->select(DbTable::COMPANY_APK_FILES, 'apk_file, bitly_link, siteload_bitly_link', array(
+                     'company_id' => $bank_id,
+                     'device_type' => 'ios',
+-                    'build_status' => 'Completed',
+                     'status' => 'Active',
++                    'min_version' => 0,
+                 ), 'id desc');
++                if (empty($existingIosMaxRow)) {
++                    $existingIosMaxRow = $this->CommonModel->select(DbTable::COMPANY_APK_FILES, 'apk_file, bitly_link, siteload_bitly_link', array(
++                        'company_id' => $bank_id,
++                        'device_type' => 'ios',
++                        'status' => 'Active',
++                        'min_version' => 1,
++                    ), 'id desc');
++                }
++                $iosApkFile = !empty($existingIosMaxRow) ? $existingIosMaxRow[0]['apk_file'] : null;
++                $iosBitlyLink = !empty($existingIosMaxRow) ? $existingIosMaxRow[0]['bitly_link'] : null;
++                $iosSiteloadBitlyLink = !empty($existingIosMaxRow) ? $existingIosMaxRow[0]['siteload_bitly_link'] : null;
++
++                //Deactivate every existing Active IOS row for this company first (instead of a
++                //select-then-update via the slave connection) so a stale duplicate can never be
++                //left behind by replication lag and outrank the version just saved. Then always
++                //insert fresh row(s) for max (and min, if different) rather than reusing an old one.
++                //Wrapped in a transaction so a failed insert can't leave the bank with zero active rows.
++                //Must run on the same connection CommonModel::update()/create() actually write
++                //through (DatabaseFactory::getInstance('default')) - $this->db here is CI's own
++                //autoloaded connection, a separate object/session that trans_start() on it would
++                //not cover these writes with.
++                $iosSaveDb = DatabaseFactory::getInstance('default');
++                $iosSaveDb->trans_start();
++
++                $this->CommonModel->update(DbTable::COMPANY_APK_FILES, array(
++                    'company_id' => $bank_id,
++                    'device_type' => 'ios',
++                    'status' => 'Active',
++                ), array(
++                    'status' => 'Inactive',
++                    'min_version' => 0,
++                    'updated_on' => date("Y-m-d H:i:s"),
++                ));
+ 
+-                if (!empty($existingIosBuild)) {
+-                    $this->CommonModel->update(DbTable::COMPANY_APK_FILES, array('id' => $existingIosBuild[0]['id']), array(
+-                        'apk_version' => $iosManualVersion,
+-                        'version' => $iosManualVersion,
+-                        'updated_on' => date("Y-m-d H:i:s"),
+-                    ));
+-                } else {
++                $this->CommonModel->create(DbTable::COMPANY_APK_FILES, array(
++                    'company_id' => $bank_id,
++                    'device_type' => 'ios',
++                    'apk_version' => $iosManualVersion,
++                    'version' => $iosManualVersion,
++                    'min_version' => $iosVersionsEqual ? 1 : 0,
++                    'status' => 'Active',
++                    'build_status' => 'Completed',
++                    'apk_file' => $iosApkFile,
++                    'bitly_link' => $iosBitlyLink,
++                    'siteload_bitly_link' => $iosSiteloadBitlyLink,
++                    'created_on' => date("Y-m-d H:i:s"),
++                    'updated_on' => date("Y-m-d H:i:s"),
++                ));
++
++                if (!$iosVersionsEqual) {
+                     $this->CommonModel->create(DbTable::COMPANY_APK_FILES, array(
+                         'company_id' => $bank_id,
+                         'device_type' => 'ios',
+-                        'apk_version' => $iosManualVersion,
+-                        'version' => $iosManualVersion,
++                        'apk_version' => $iosMinVersion,
++                        'version' => $iosMinVersion,
++                        'min_version' => 1,
+                         'status' => 'Active',
+                         'build_status' => 'Completed',
+                         'created_on' => date("Y-m-d H:i:s"),
+@@ -8790,8 +8882,14 @@ class BankManagement extends Admin_Controller
+                     ));
+                 }
+ 
+-                $response['status'] = 1;
+-                $response['message'] = 'IOS version saved successfully';
++                $iosSaveDb->trans_complete();
++
++                if ($iosSaveDb->trans_status() === FALSE) {
++                    $response['message'] = 'Unable to save IOS version, please try again';
++                } else {
++                    $response['status'] = 1;
++                    $response['message'] = 'IOS version saved successfully';
++                }
+             } else {
+                 $response['message'] = 'IOS version is required';
+             }
+diff --git a/application/modules/cbs/models/CompanyMaster_model.php b/application/modules/cbs/models/CompanyMaster_model.php
+index d7971713c0..1e34b4ae41 100644
+--- a/application/modules/cbs/models/CompanyMaster_model.php
++++ b/application/modules/cbs/models/CompanyMaster_model.php
+@@ -617,6 +617,10 @@ class CompanyMaster_model extends CI_Model
+                 SELECT account_id FROM " . DbTable::UPI_ID . "
+                 WHERE vpa_type = 'P2PM'
+             )
++            AND acc.id IN (
++                SELECT account_id FROM " . DbTable::UPI_ID . "
++                WHERE vpa_type = 'P2M' AND seller_status = 'ACTIVE'
++            )
+         GROUP BY acc.id
+         ORDER BY
+             CASE
+diff --git a/application/modules/cbs/views/bank-management/app-link.php b/application/modules/cbs/views/bank-management/app-link.php
+index be7a5203f6..0ed75504c3 100644
+--- a/application/modules/cbs/views/bank-management/app-link.php
++++ b/application/modules/cbs/views/bank-management/app-link.php
+@@ -90,7 +90,14 @@ $sub_menu = $formData['page_name']  == 'bank_and_branch_management' ? 'bank-list
+ 											<div class="row mt-5">
+ 												<div class="col-md-4">
+ 													<div class="form-group">
+-														<label for="ios_manual_version">IOS Latest App Version</label>
++														<label for="ios_min_version">IOS Minimum App Version</label>
++														<input type="text" class="form-control" name="ios_min_version" id="ios_min_version" maxlength="20" placeholder="e.g. 1.0.0" value="<?php echo set_value('ios_min_version', isset($formData['ios_min_version']) ? $formData['ios_min_version'] : ''); ?>">
++														<span class="form-error" id="error_ios_min_version"></span>
++													</div>
++												</div>
++												<div class="col-md-4">
++													<div class="form-group">
++														<label for="ios_manual_version">IOS Latest / Maximum App Version</label>
+ 														<input type="text" class="form-control" name="ios_manual_version" id="ios_manual_version" maxlength="20" placeholder="e.g. 2.3.1" value="<?php echo set_value('ios_manual_version', isset($formData['ios_manual_version']) ? $formData['ios_manual_version'] : ''); ?>">
+ 														<span class="form-error" id="error_ios_manual_version"></span>
+ 													</div>
+@@ -277,6 +284,8 @@ $sub_menu = $formData['page_name']  == 'bank_and_branch_management' ? 'bank-list
+ 
+ 	$('#saveIosManualVersion').click(function() {
+ 		$('#error_ios_manual_version').text('');
++		$('#error_ios_min_version').text('');
++		var iosMinVersion = $('#ios_min_version').val().trim();
+ 		var iosVersion = $('#ios_manual_version').val().trim();
+ 
+ 		if (iosVersion === '') {
+@@ -289,6 +298,7 @@ $sub_menu = $formData['page_name']  == 'bank_and_branch_management' ? 'bank-list
+ 			type: 'POST',
+ 			data: {
+ 				'slug': "<?= $formData['onestack_id'] ?>",
++				'ios_min_version': iosMinVersion,
+ 				'ios_manual_version': iosVersion
+ 			},
+ 			beforeSend: function() {
+diff --git a/application/modules/mobile_app/controllers/apiv6/Profile.php b/application/modules/mobile_app/controllers/apiv6/Profile.php
+index a75ff33213..3a6580235c 100644
+--- a/application/modules/mobile_app/controllers/apiv6/Profile.php
++++ b/application/modules/mobile_app/controllers/apiv6/Profile.php
+@@ -11971,49 +11971,71 @@ class Profile extends Mobile_Controller
+         $apiResponse["meta"]["status_code"] = 0;
+         $apiResponse["meta"]["status_message"] = isset($this->lang_data['unable_to_fetch_version_details']) ? $this->lang_data['unable_to_fetch_version_details'] : "Unable to fetch version details";
+ 
+-        $header = getallheaders();
+-        $device_type = isset($header['device_type']) ? $header['device_type'] : 'android';
++        $raw_headers = $this->input->request_headers();
++        if (empty($raw_headers) && function_exists('getallheaders')) {
++            $raw_headers = getallheaders();
++        }
++        $headers = array_change_key_case((array)$raw_headers, CASE_LOWER);
++
++        $device_type = 'android';
++        if (isset($headers['platform'])) {
++            $device_type = strtolower(trim($headers['platform']));
++        } elseif (isset($headers['device_type'])) {
++            $device_type = strtolower(trim($headers['device_type']));
++        } elseif (isset($headers['device-type'])) {
++            $device_type = strtolower(trim($headers['device-type']));
++        } elseif (isset($headers['iss'])) {
++            $device_type = strtolower(trim($headers['iss']));
++        }
++
++        if ($device_type === 'iphone' || $device_type === 'ipad') {
++            $device_type = 'ios';
++        }
++        if ($device_type !== 'ios') {
++            $device_type = 'android';
++        }
+ 
+         if ($companyId != 0) {
+-            $this->sdb->select('apk_file,apk_version,version,created_on,siteload_bitly_link');
+-            $this->sdb->where(array('company_id' => $companyId, 'build_status' => 'Completed', 'status' => 'Active', 'device_type' => $device_type));
+-            $this->sdb->order_by('version', 'desc');
+-            $version = $this->sdb->get(DbTable::COMPANY_APK_FILES)->row_array();
++            $reqVersionDetails = $this->get_platform_version_details($companyId, $device_type);
++            $maxVersionRow = $reqVersionDetails['max_row'];
++            $minVersionVal = $reqVersionDetails['min_version'];
++            $maxVersionVal = $reqVersionDetails['max_version'];
++
++            $iosVersionDetails = $this->get_platform_version_details($companyId, 'ios');
++            $androidVersionDetails = $this->get_platform_version_details($companyId, 'android');
+ 
+             $playstore_appstore_condition = array(
+                 'company_id' => $companyId
+             );
+-            $playstore_appstore_link_data =  $this->CommonModel->select(DbTable::COMPANY_PLAYSTORE_APPSTORE_LINK, '*', $playstore_appstore_condition);
++            $playstore_appstore_link_data = $this->CommonModel->select(DbTable::COMPANY_PLAYSTORE_APPSTORE_LINK, '*', $playstore_appstore_condition);
+ 
+             $play_store_link = '';
+             $play_store_link_status = '';
+-            $app_store_lin = '';
++            $app_store_link = '';
+             $app_store_link_status = '';
+             if (!empty($playstore_appstore_link_data)) {
+                 $play_store_link        = isset($playstore_appstore_link_data[0]['play_store_link']) ? $playstore_appstore_link_data[0]['play_store_link'] : '';
+-                $play_store_link_status    = isset($playstore_appstore_link_data[0]['play_store_link_status']) ? $playstore_appstore_link_data[0]['play_store_link_status'] : '';
++                $play_store_link_status = isset($playstore_appstore_link_data[0]['play_store_link_status']) ? $playstore_appstore_link_data[0]['play_store_link_status'] : '';
+                 $app_store_link         = isset($playstore_appstore_link_data[0]['app_store_link']) ? $playstore_appstore_link_data[0]['app_store_link'] : '';
+-                $app_store_link_status    = isset($playstore_appstore_link_data[0]['app_store_link_status']) ? $playstore_appstore_link_data[0]['app_store_link_status'] : '';
++                $app_store_link_status  = isset($playstore_appstore_link_data[0]['app_store_link_status']) ? $playstore_appstore_link_data[0]['app_store_link_status'] : '';
+             }
+ 
+             $versions_arr = array();
+-            if (!empty($version)) {
+-                $apk_version = $version['apk_version'];
+-
++            if (!empty($maxVersionRow)) {
+                 if ($device_type == 'android' && $play_store_link != '' && $play_store_link_status == 1) {
+                     $redirect = $play_store_link;
+                 } else if ($device_type == 'ios' && $app_store_link != '' && $app_store_link_status == 1) {
+                     $redirect = $app_store_link;
+                 } else {
+-                    $redirect = $version['siteload_bitly_link'];
++                    $redirect = $maxVersionRow['siteload_bitly_link'];
+                 }
+ 
+-                $versions_arr['min'] = $versions_arr['max'] = $apk_version;
++                $versions_arr['min'] = $minVersionVal;
++                $versions_arr['max'] = $maxVersionVal;
+                 $versions_arr['redirect'] = $redirect;
+-                $versions_arr['release_date'] = $version['created_on'];
++                $versions_arr['release_date'] = $maxVersionRow['created_on'];
+             } else {
+                 if ($device_type == 'android') {
+-
+                     if ($play_store_link != '' && $play_store_link_status == 1) {
+                         $redirect = $play_store_link;
+                         $versions_arr['min'] = $versions_arr['max'] = '1.0.0';
+@@ -12021,7 +12043,6 @@ class Profile extends Mobile_Controller
+                         $versions_arr['release_date'] = '';
+                     }
+                 } else if ($device_type == 'ios') {
+-
+                     if ($app_store_link != '' && $app_store_link_status == 1) {
+                         $redirect = $app_store_link;
+                         $versions_arr['min'] = $versions_arr['max'] = '1.0.0';
+@@ -12030,47 +12051,10 @@ class Profile extends Mobile_Controller
+                     }
+                 }
+             }
+-            if ($device_type == 'ios' && !empty($version)) {
+-                $ios_min = $ios_max = $version['apk_version'];
+-            } else {
+-                $this->sdb->select('apk_version');
+-                $this->sdb->where(array('company_id' => $companyId, 'build_status' => 'Completed', 'status' => 'Active', 'device_type' => 'ios'));
+-                $this->sdb->order_by('version', 'desc');
+-                $iosVersionRow = $this->sdb->get(DbTable::COMPANY_APK_FILES)->row_array();
+-                $ios_min = $ios_max = !empty($iosVersionRow) ? $iosVersionRow['apk_version'] : '';
+-            }
+ 
+             $apiResponse["meta"]["status_code"] = 1;
+             $apiResponse["meta"]["status_message"] = isset($this->lang_data['version_details_fetched']) ? $this->lang_data['version_details_fetched'] : "Version details fetched successfully";
+             $apiResponse["data"]["versions"] = $versions_arr;
+-            $apiResponse["data"]["ios"] = array(
+-                'min' => $ios_min,
+-                'max' => $ios_max,
+-            );
+-            //$versions = $this->CommonModel->select(DbTable::COMPANY_APK_FILES, 'apk_file,apk_version,version,created_on,siteload_bitly_link', array('company_id' => $companyId, 'build_status' => 'Completed', 'status' => 'Active'));
+-            // if (!empty($versions)) {
+-            //     $versions_count = count($versions);
+-            //     $min = $versions[0]['version'];
+-            //     $redirect = $versions[0]['siteload_bitly_link'];
+-            //     if ($versions_count > 1) {
+-            //         $max = $versions[($versions_count - 1)]['version'];
+-            //         $redirect = $versions[($versions_count - 1)]['siteload_bitly_link'];
+-            //     } else {
+-            //         $max = $versions[0]['version'];
+-            //     }
+-            //     if (substr_count($min, '.') == 1) {
+-            //         $min .= '.0';
+-            //     }
+-            //     if (substr_count($max, '.') == 1) {
+-            //         $max .= '.0';
+-            //     }
+-            //     $versions_arr['min'] = '1.0.0'; //$min;
+-            //     $versions_arr['max'] = '1.0.1'; //$max;
+-            //     $versions_arr['redirect'] = $redirect;
+-            //     $apiResponse["meta"]["status_code"] = 1;
+-            //     $apiResponse["meta"]["status_message"] = "Version details fetched successfully";
+-            //     $apiResponse["data"]["versions"] = $versions_arr;
+-            // }
+         }
+ 
+         $logtxt = "";
+@@ -12080,6 +12064,79 @@ class Profile extends Mobile_Controller
+         $this->response(encrypt_api_response_gcm($apiResponse));
+     }
+ 
++    private function get_platform_version_details($companyId, $device_type)
++    {
++        $this->sdb->select('apk_file, apk_version, version, created_on, siteload_bitly_link, min_version');
++        $this->sdb->where(array(
++            'company_id' => $companyId,
++            'build_status' => 'Completed',
++            'status' => 'Active',
++            'device_type' => $device_type
++        ));
++        $this->sdb->order_by('id', 'desc');
++        $builds = $this->sdb->get(DbTable::COMPANY_APK_FILES)->result_array();
++
++        if (empty($builds)) {
++            return array('max_row' => null, 'min_version' => '', 'max_version' => '');
++        }
++
++        $maxRow = null;
++        $minRow = null;
++
++        if ($device_type === 'ios') {
++            //IOS max/min are set explicitly by BankManagement::saveIosManualVersion(), which always
++            //deactivates every other row first - so whichever row is flagged min_version=0 (max) or
++            //min_version=1 (min) is exactly what was most recently saved, taken as-is with no
++            //numeric comparison, so a deliberately lower re-save is never masked by an older,
++            //numerically higher row.
++            foreach ($builds as $row) {
++                if ((int)$row['min_version'] === 1) {
++                    if ($minRow === null) {
++                        $minRow = $row;
++                    }
++                } else {
++                    if ($maxRow === null) {
++                        $maxRow = $row;
++                    }
++                }
++            }
++            //When min and max were saved as the same value, only one row exists (flagged min_version=1).
++            if ($maxRow === null) {
++                $maxRow = $minRow;
++            }
++            if ($minRow === null) {
++                $minRow = $maxRow;
++            }
++        } else {
++            //Android's min_version flag is set independently per build from the admin build-list
++            //screen (CompanyMaster::updateAppBuildData_n) and isn't tied to which build is newest,
++            //so max stays the numerically highest active build via version_compare() - unchanged
++            //from before the iOS min/max feature existed, and not the iOS flag-based selection above.
++            foreach ($builds as $row) {
++                $ver = trim($row['apk_version']);
++                if ($ver === '') continue;
++
++                if ($maxRow === null || version_compare($ver, $maxRow['apk_version'], '>')) {
++                    $maxRow = $row;
++                }
++                if ((int)$row['min_version'] === 1) {
++                    if ($minRow === null || version_compare($ver, $minRow['apk_version'], '<')) {
++                        $minRow = $row;
++                    }
++                }
++            }
++            if ($minRow === null) {
++                $minRow = $maxRow;
++            }
++        }
++
++        return array(
++            'max_row' => $maxRow,
++            'min_version' => $minRow ? $minRow['apk_version'] : '',
++            'max_version' => $maxRow ? $maxRow['apk_version'] : ''
++        );
++    }
++
+     public function get_users_apk_version_post()
+     {
+         $apiRequest = decrypt_api_request_gcm(json_decode(file_get_contents('php://input'), true));
+diff --git a/application/modules/mobile_app/controllers/communication/CommunicationWhatsapp.php b/application/modules/mobile_app/controllers/communication/CommunicationWhatsapp.php
+index c7ce4bdf4c..b537ada994 100644
+--- a/application/modules/mobile_app/controllers/communication/CommunicationWhatsapp.php
++++ b/application/modules/mobile_app/controllers/communication/CommunicationWhatsapp.php
+@@ -436,16 +436,16 @@ class CommunicationWhatsapp extends Admin_Controller
+                             {
+                                 $post_field['call_to_action_buttons'] = $dynamic_url_buttons;
+                             }
+-                        } else {                
+-                            $post_field = "userid=" .$_ENV['WTSAPP_USERNAME']. "&password=" .$_ENV['WTSAPP_PASSWORD']. "&type=text&method=create_whatsapp_hsm&category=" . $_POST['template_category'] . "&language=".$template_language."&template_name=" . $template_id . "&allow_category_change=true&template=" . $message_gupshup . "&template_variable_examples=" . $variables_format . "&header=" . $header . "&footer=" . $footer;
++                        } else {
++                            $post_field = "userid=" .$_ENV['WTSAPP_USERNAME']. "&password=" .$_ENV['WTSAPP_PASSWORD']. "&type=text&method=create_whatsapp_hsm&category=" . rawurlencode($_POST['template_category']) . "&language=".rawurlencode($template_language)."&template_name=" . rawurlencode($template_id) . "&allow_category_change=true&template=" . $message_gupshup . "&template_variable_examples=" . rawurlencode($variables_format) . "&header=" . $header . "&footer=" . $footer;
+ 
+                             if($cta_buttons_category =='dynamic_url')
+                             {
+-                                $post_field.= '&call_to_action_buttons='.$dynamic_url_buttons;
+-                            } 
++                                $post_field.= '&call_to_action_buttons='.rawurlencode($dynamic_url_buttons);
++                            }
+                             elseif($cta_buttons_category =='quick_reply')
+                             {
+-                                $post_field.= '&quick_reply_buttons='.json_encode($quick_reply_buttons);
++                                $post_field.= '&quick_reply_buttons='.rawurlencode(json_encode($quick_reply_buttons));
+                             }
+                         }
+ 
+diff --git a/application/modules/mobile_app/models/bank_onboarding_form/CompanyMaster_model.php b/application/modules/mobile_app/models/bank_onboarding_form/CompanyMaster_model.php
+index 2caf7fbb04..cff02044d2 100644
+--- a/application/modules/mobile_app/models/bank_onboarding_form/CompanyMaster_model.php
++++ b/application/modules/mobile_app/models/bank_onboarding_form/CompanyMaster_model.php
+@@ -611,6 +611,10 @@ class CompanyMaster_model extends CI_Model
+                 SELECT customer_id FROM " . DbTable::UPI_ID . "
+                 WHERE vpa_type = 'P2PM'
+             )
++            AND acc.customer_id IN (
++                SELECT customer_id FROM " . DbTable::UPI_ID . "
++                WHERE vpa_type = 'P2M' AND seller_status = 'ACTIVE'
++            )
+         GROUP BY acc.id
+         ORDER BY
+             CASE
+
+
+stderr: error: Eligibility check failed: UNAVAILABLE (code 503): The service is currently unavailable.
+Comparing branches: 'pc_android_ios' -> 'onestackcbs'...
+Running review with provider 'antigravity'...
+EXIT=1 TOOK=130s

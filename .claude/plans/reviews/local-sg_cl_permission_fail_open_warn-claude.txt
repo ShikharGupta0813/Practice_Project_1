@@ -1,0 +1,123 @@
+2026-10-01 05:19:25 [INFO] Review succeeded on attempt 1/3 with 1 finding(s).
+2026-10-01 05:20:23 [WARNING] Business review attempt 1/3: provider 'claude' returned invalid JSON: Finding at index 0 has an invalid 'severity': 'INFO'
+2026-10-01 05:21:22 [WARNING] Business review attempt 2/3: provider 'claude' returned invalid JSON: Finding at index 0 has an invalid 'severity': 'INFO'
+2026-10-01 05:22:21 [INFO] Business review succeeded on attempt 3/3 with 0 finding(s).
+Comparing branches: 'sg_cl_permission_fail_open_warn' -> 'onestackcbs'...
+Running review with provider 'claude'...
+Running Business Context review...
+
+AI Review Summary
+
+Overview:
+  What Changed: PermissionService::checkPermission() now has a warn mode. A DENY_REASONS class constant (empty for now) decides which of the four fail-open paths should deny. These are no-action, slug-not-found, no-access-row and missing-referer. Each path now goes through failOpen()/logWouldDeny(), which writes a 'would deny' line (user_id, role ids, slug, action, gate, reason, detail) once per request and then returns the same answer as before. Requests with a slug but no Referer are handled first. They keep today's role-only access check and the legacy 'Skipping URL' entry, and also run a cached, menu-scoped comparison (scopedDenyReason) to label would-deny lines. The menu lookup and condition building moved into shared helpers, findMenu() and menuCondition().
+  Files Modified: application/libraries/PermissionService.php
+  High-Level Impact: With DENY_REASONS = [], access decisions should not change. In the no-Referer branch the role-only query, the empty-row log and the allow/deny result match the old code. The Referer path is unchanged except that the menu block now runs whenever the slug is non-empty. New costs: up to two extra queries (findMenu plus a scoped access row) per distinct slug|column on no-Referer requests, cached for the request. There is also one would-deny line per request for almost every non-admin Auth_Controller request, written to the separate -no-action log file. Later edits to DENY_REASONS change real authorization behaviour on every console request and on the direct callers (ActionUIComponent, CardStoreController and others).
+  Potential Review Focus: Check that the early no-Referer branch (lines 83-102) gives the same answer as the old role-only path, including when the slug is empty and when the access row is missing. Check that the normal path's menu-inactive and not-granted log calls can only be reached once 'missing-referer' is enforced. Check that the scopedDenyCache key (slug|column) is enough, given that $condition always comes from the session. Watch log volume and retention for PermissionService-would-deny-no-action-*.log. Note that ActionUIComponent calls with an empty slug on non-admin pages can produce 'no-access-row' lines with slug ''. Expect these when reading the logs before enforcing that reason.
+
+Code Flow Diagram
+-----------------
+The warn-mode decision flow in checkPermission(): where each fail-open reason is logged and how the no-Referer branch keeps the legacy answer.
+
+```mermaid
+flowchart TD
+    A[checkPermission] --> B{is_main?}
+    B -->|Yes| OK[Allow]
+    B -->|No| C{Action mapped to column?}
+    C -->|No| F1[failOpen no-action]
+    C -->|Yes| D{No Referer and slug set and missing-referer not enforced?}
+    D -->|Yes| E[Legacy role-only access query]
+    E --> E1{Legacy allowed?}
+    E1 -->|No| DENY[deny]
+    E1 -->|Yes| E2[Scoped check: findMenu + menu access]
+    E2 -->|Would deny| L[Log would-deny missing-referer]
+    E2 --> OK
+    L --> OK
+    D -->|No| G{Slug set?}
+    G -->|Yes| H{Menu found?}
+    H -->|No| F2[failOpen slug-not-found]
+    H -->|Inactive| DENY
+    H -->|Active| I[Menu-scoped access query]
+    G -->|No| I2[Role-only access query]
+    I --> J{Access row?}
+    I2 --> J
+    J -->|No| F3[failOpen no-access-row]
+    J -->|Granted| OK
+    J -->|Not granted| DENY
+    F1 --> K{Reason in DENY_REASONS?}
+    F2 --> K
+    F3 --> K
+    K -->|Yes| DENY
+    K -->|No| LEG[Return legacy result]
+```
+
+Relevant code: application/libraries/PermissionService.php
+
+Critical: 0
+High: 0
+Medium: 0
+Low: 1
+Suggestion: 0
+
+Total Findings: 1
+
+[LOW] application/libraries/PermissionService.php:83 - Behaviour-neutral restructure of the central auth gate has no committed regression test
+    category=Testing confidence=0.80
+    This PR restructures the permission check that runs on every Auth_Controller request, and warn mode is only safe if every request still gets exactly the same answer as before. The old-vs-new harness of 1,440 scenarios mentioned in the business context is not part of the diff. That leaves later DENY_REASONS edits and refactors of the no-Referer branch without an automated guard. Consider committing the harness, or a small set of table-driven tests covering Referer present/absent, slug empty/missing/inactive, row missing, and granted/not granted.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: HIGH
+Summary: This is the central authorization gate for the whole admin console. The change has to stay behaviour-neutral across four fail-open paths and their interaction with the Referer, while preparing a staged rollout to deny-by-default.
+Factors:
+  - Security-critical code that runs on every Auth_Controller request plus 8 direct callers with different redirect semantics (page vs UI gate)
+  - Four distinct fail-open paths, and the Referer path changes which access condition (role-only vs menu-scoped) is evaluated
+  - Must keep exact legacy decisions and legacy log entries in warn mode while also computing the menu-scoped answer for comparison
+  - Staged enforcement plan in which the reasons depend on each other (missing-referer vs slug-not-found / no-access-row) and on route-rename tasks
+
+Fix Quality
+Level: STRONG
+Summary: Warn mode is implemented carefully. Legacy decisions are kept on every path, enforcement is controlled by a single reviewed constant, and the shared helpers stop the live and comparison paths from drifting apart. The main gap is that the equivalence evidence is not committed as tests.
+Strengths:
+  - DENY_REASONS as a class constant makes each future enforcement step a small, reviewable code change instead of an untracked config edit
+  - The no-Referer branch reproduces the legacy role-only query, the 'Skipping URL' entry and the allow/deny result exactly, so warn mode does not change behaviour
+  - findMenu() and menuCondition() are shared by the live path and resolveScopedDenyReason(), so the comparison cannot drift from the real check
+  - Would-deny lines log user_id and role ids, not email, are deduplicated per request, and no-action lines go to their own file to limit noise
+  - The scoped comparison runs only when the legacy result is allow, and it is cached per slug|column, which limits the extra database load
+Areas for Improvement:
+  - Commit the old-vs-new decision harness, or equivalent tests, so later DENY_REASONS changes have a regression safety net
+  - The no-Referer branch duplicates the legacy role-only check and log; plan to remove it once 'missing-referer' is enforced so the two paths do not linger
+
+Database Recommendations
+------------------------
+[LOW] QUERY_PERFORMANCE_CHECK
+    Table: sidebar navigation menus (DbTable::SIDEBAR_NAVIGATION_MENUS)
+    Columns: menu_link
+    Recommendation: Verify that an index exists on menu_link in the sidebar navigation menus table.
+    Reason: findMenu() now also runs on no-Referer requests (address-bar navigation and Referer-less AJAX) to build the warn-mode comparison, which raises how often this lookup runs.
+    Action: Cross-check the actual database before release.
+
+[LOW] INDEX_CHECK
+    Table: user management access (DbTable::USER_MANAGEMENT_ACCESS)
+    Columns: role_group_id, role_id, parent_menu, child_menu, sub_child_menu
+    Recommendation: Verify that a composite index led by role_group_id and role_id, ideally including parent_menu, child_menu and sub_child_menu, exists on the user management access table.
+    Reason: No-Referer requests now run both the role-only access query and an additional menu-scoped access query (resolveScopedDenyReason) for each distinct slug and action.
+    Action: Cross-check the actual database before release.
+
+Business Context Review
+-----------------------
+Status: COMPLETED
+
+Requirements: 9 identified, 9 covered, 0 partially covered
+Scenarios: 8 identified, 8 covered, 0 missing
+Business Rules: 6 identified, 6 satisfied, 0 violated
+
+Total Business Findings: 0
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Branch comparison mode: this review is not published to GitHub -- there is no pull request to attach it to.
+EXIT=0 TOOK=280s

@@ -1,0 +1,63 @@
+2026-09-24 09:29:17 [INFO] Review succeeded on attempt 1/3 with 0 finding(s).
+2026-09-24 09:31:57 [WARNING] Business review attempt 1/3: provider 'claude' returned invalid JSON: Finding at index 0 has an invalid 'severity': 'INFO'
+2026-09-24 09:33:49 [INFO] Business review succeeded on attempt 2/3 with 0 finding(s).
+Fetching metadata for PR #13338...
+Running review with provider 'claude'...
+Running Business Context review...
+
+AI Review Summary
+
+Overview:
+  What Changed: Adds a server-side access gate and an existing-login ownership guard to PartnerMaster::giveDashboardAccess() and CompanyMaster::giveDashboardAccess(), which create/update/delete tbl_users logins for bank and partner contacts. The gate rejects callers whose session has a company_id or partner_id (mirroring the condition the views already use to hide the dropdown). The guard, run immediately after the contact lookup and before any password is generated or email sent, refuses to create/update/delete a login if the contact's email already belongs to a main superadmin, a role-group login, or a login scoped to a different bank/partner. CompanyMaster additionally stops trusting POST company_id and instead derives the bank scope from the contact record. The unused, permission-check-bypassing route admin/give-dashboard-access is removed from routes.php.
+  Files Modified: application/config/routes.php, application/modules/mobile_app/controllers/bank_onboarding_form/CompanyMaster.php, application/modules/mobile_app/controllers/bank_onboarding_form/PartnerMaster.php
+  High-Level Impact: Closes a broken-access-control hole that let any authenticated console session (not just OneStack staff) create, take over, or delete dashboard logins for arbitrary bank/partner contacts, including overwriting superadmin or staff logins. The change is a pure tightening of an existing endpoint's behavior: legitimate OneStack flows (granting access, changing an existing dashboard-contact's role, revoking access) are preserved, while previously-permitted cross-scope writes and unauthorized calls now return a JSON error and perform no DB write or email send. No new endpoints, schema changes, or behavior changes for already-restricted callers.
+  Potential Review Focus: Confirm the guard truly executes before send_mail() and before ion_auth->register/update in both files (ordering is security-critical here), confirm the reused $userInfo variable (now selected with additional columns before the roleId branch) is not referenced anywhere the guard's `!empty($companyUsersInfo)`/`!empty($partnerUsersInfo)` condition could skip, and manually verify on a dev environment that a bank/partner-scoped session gets 'Unauthorized access' and that an OneStack session can still change an existing dashboard contact's role and use 'No Access' on their own login.
+
+Critical: 0
+High: 0
+Medium: 0
+Low: 0
+Suggestion: 0
+
+Total Findings: 0
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: HIGH
+Summary: This is a broken access control / account-takeover fix touching two symmetric but non-identical controllers, where the guard conditions must precisely distinguish 'this action's own login' from every other kind of login without breaking the existing role-change and revoke flows, and must be sequenced correctly relative to password generation and email dispatch.
+Factors:
+  - Security-critical: incorrect guard logic could still allow account creation, takeover, or deletion of unrelated logins
+  - Ordering constraint: the existing-login check must run before send_mail()/register()/update() in both functions, not just be present
+  - Multiple interacting authorization dimensions per login (is_main, role_grp_id, bank/partner scope) must be combined correctly without over- or under-refusing
+  - Must preserve three distinct legitimate flows (grant to new contact, change existing dashboard contact's role, revoke via 'No Access') while blocking the unauthorized ones
+  - Two independently evolved controllers (PartnerMaster, CompanyMaster) with a similar but not identical vulnerability shape, plus a dead fail-open route to remove
+
+Fix Quality
+Level: STRONG
+Summary: The implementation places the access gate and existing-login guard exactly where specified, before any mutation or email, reuses the session/view condition verbatim so behavior stays consistent with what the UI already implies, and removes the untrusted POST company_id in CompanyMaster in favor of the contact's own record.
+Strengths:
+  - Guard and gate are both inserted before send_mail()/register()/update(), satisfying the critical ordering requirement
+  - Reuses the already-fetched $userInfo (now selected with is_main, role_grp_id, company_id/partner_id) instead of a second duplicate query, removing the old redundant lookup
+  - Guard is placed before the roleId branch so it uniformly covers both the grant path and the 'No Access' (delete) path
+  - CompanyMaster's company scope is now derived from the contact record instead of client-supplied POST data, closing the partner-lookup trust issue described for that function
+  - Preserves each file's existing brace/style conventions rather than reformatting, keeping the diff minimal and scoped to the described ~40 lines
+  - Route cleanup for the unused fail-open admin/give-dashboard-access entry is included
+  - PR description documents a thorough before/after behavioral test matrix covering unauthorized callers, ownership-guard refusals for superadmin/role-group/cross-scope logins, and the legitimate grant/update/revoke paths
+Areas for Improvement:
+  - No automated regression test was added to the repository for this access-control logic; coverage relies on the manually-run, uncommitted harness described in the PR body
+  - PR description explicitly notes the change was not exercised against a real login/browser session on dev prior to merge, only the scripted harness
+
+Business Context Review
+-----------------------
+Status: COMPLETED
+
+Requirements: 4 identified, 4 covered, 0 partially covered
+Scenarios: 10 identified, 10 covered, 0 missing
+Business Rules: 4 identified, 4 satisfied, 0 violated
+
+Total Business Findings: 0
+
+Dry run: skipping publish step. No changes were made to GitHub.
+EXIT=0 TOOK=494s

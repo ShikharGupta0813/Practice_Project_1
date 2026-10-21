@@ -1,0 +1,112 @@
+2026-10-01 10:12:32 [INFO] Review succeeded on attempt 1/3 with 2 finding(s).
+2026-10-01 10:13:45 [WARNING] Business review attempt 1/3: provider 'claude' returned invalid JSON: Finding at index 2 has an invalid 'severity': 'INFO'
+2026-10-01 10:14:38 [INFO] Business review succeeded on attempt 2/3 with 2 finding(s).
+Comparing branches: 'sg_cl_csrf_token_support' -> 'onestackcbs'...
+Running review with provider 'claude'...
+Running Business Context review...
+
+AI Review Summary
+
+Overview:
+  What Changed: Adds groundwork for CSRF protection while keeping it switched off. A new client script, assets/custom/js/csrf.js, wraps XMLHttpRequest, fetch, form submit events and HTMLFormElement.prototype.submit. When a POST goes to the same origin, it reads the live csrf_cookie_name cookie and sends it as an X-CSRF-Token header or as the csrf_test_name hidden field. A new application/core/MY_Security.php skips a hard-coded list of machine-called URI patterns. For other POSTs, it copies the X-CSRF-Token header into $_POST before calling the stock check. The script tag is added after jQuery in five shared templates, and before </head> in 20 standalone or partial views.
+  Files Modified: application/core/MY_Security.php [NEW], assets/custom/js/csrf.js [NEW], application/modules/cbs/views/reports/reconciliation/recon-dashboard.php, application/modules/cbs/views/service-managment/locker-availability.php, application/modules/cbs/views/service-managment/locker-service.php, application/modules/mobile_app/views/frontend/deregister_device.php, application/modules/mobile_app/views/frontend/sideload.php, application/modules/mobile_app/views/public/add-center-merchant-details.php, application/modules/mobile_app/views/public/add-customer-and-account-details.php, application/modules/mobile_app/views/public/add-customer-details-ekyc-setu.php, application/modules/mobile_app/views/public/add-customer-details.php, application/modules/mobile_app/views/public/add-spinny-kyc-details.php, application/modules/mobile_app/views/public/bank_poster.php, application/modules/mobile_app/views/public/bank_upload_customer.php, application/modules/mobile_app/views/public/form1.php, application/modules/mobile_app/views/public/form2.php, application/modules/mobile_app/views/public/offline-kyc.php, application/views/admin/_pg_templates/header.php, application/views/admin/_templates/header.php, application/views/auth/_templates/footer.php, application/views/debug/_templates/footer.php, application/views/frontend/deregister_device.php, application/views/frontend/sideload.php, application/views/public/_templates/footer.php, application/views/public/bank_upload_customer.php, application/views/public/form1.php, application/views/public/form2.php
+  High-Level Impact: csrf.js now runs on every admin, auth, public and debug page, and it patches the global XHR, fetch and form-submit APIs. While csrf_protection is FALSE there is no cookie, so it adds no headers, but the patches are still installed. MY_Security only runs once protection is turned on. The script tag was added by blanket replacement of </head>, and in recon-dashboard.php the replaced </head> sits inside a JavaScript template literal, which breaks that page now, even with protection off.
+  Potential Review Focus: 1) The </head> replacement in recon-dashboard.php, and any other view where </head> appears inside a JS or PHP string. 2) In MY_Security, a stale token in the POST body takes precedence over the fresh header. 3) Check the machine-URI exempt list against production POST traffic before protection is turned on (for example, home/.* is exempted although the plan listed it as browser-protected). 4) Whether the fetch and XHR wrappers keep native behaviour for Request objects and uploads.
+
+Code Flow Diagram
+-----------------
+How a POST request's CSRF token is attached by csrf.js and then checked by MY_Security once csrf_protection is turned on.
+
+```mermaid
+flowchart TD
+    A[Browser POST: XHR, fetch or form] --> B{Same origin and cookie present?}
+    B -->|No| C[Send unchanged]
+    B -->|Yes| D[Attach live cookie token as X-CSRF-Token header or csrf_test_name field]
+    D --> E[MY_Security csrf_verify]
+    C --> E
+    E --> F{URI matches machine exempt list?}
+    F -->|Yes| G[Skip check]
+    F -->|No| H{csrf_test_name in POST?}
+    H -->|No| I[Copy header into POST]
+    H -->|Yes| J[Use body value]
+    I --> K[parent csrf_verify compares with cookie]
+    J --> K
+    K -->|Mismatch| L[403]
+    K -->|Match| M[Request proceeds]
+```
+
+Relevant code: assets/custom/js/csrf.js, application/core/MY_Security.php
+
+Critical: 0
+High: 1
+Medium: 1
+Low: 0
+Suggestion: 0
+
+Total Findings: 2
+
+[HIGH] application/modules/cbs/views/reports/reconciliation/recon-dashboard.php:710 - Script tag injected into a JS template literal breaks the recon dashboard
+    category=Correctness confidence=0.95
+    This </head> is inside the excelHtml template literal in exportDailyNtslExcel(), which sits in the inline <script> block that runs from line 415 to line 1155. The browser's HTML parser ends that inline script at the injected literal </script>. This leaves an unterminated template literal (a syntax error), and the remaining JS is shown on the page as text. As a result, every function in the block stops working on the reconciliation dashboard right away, with protection off. Revert this hunk; the page already gets csrf.js from the admin template.
+
+[MEDIUM] application/core/MY_Security.php:51 - Stale body token takes precedence over the fresh header token
+    category=Correctness confidence=0.82
+    The header is only used when $_POST[csrf_test_name] is absent. Once protection is on, form_open() prints a hidden csrf_test_name field at render time, and csrf_regenerate=TRUE rotates the token after every POST. So an AJAX call that sends serialize() or FormData(form) without a submit event sends the stale field, and the request gets a 403 even though csrf.js attached the current token as a header. The header is read from the cookie at send time and is always current, so prefer it whenever it is present.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: HIGH
+Summary: Turning on CSRF safely in a large CI3 codebase means covering about 2,500 AJAX calls and hundreds of forms with a rotating token. It also needs the stock token check extended and every machine-to-machine caller (NPCI, bank, mobile, cron) correctly exempted, because a missed exemption breaks payments.
+Factors:
+  - csrf_regenerate=TRUE rotates the token after every POST, so tokens must be read at send time
+  - Stock CI3 accepts the token only from $_POST, so JSON-body and header-based requests need a server extension
+  - The exempt list for payment, NPCI and bank callbacks is safety-critical and must be derived from route files and production traffic
+  - Global monkey-patching of XHR, fetch and form submit affects every page on every surface
+  - Behaviour must not change while protection stays off
+
+Fix Quality
+Level: NEEDS_IMPROVEMENT
+Summary: The core design is sound and matches the agreed plan: the token is read from the cookie at send time, it is only sent to the same origin, a header fallback is added on the server, and the exempt list is deployed with the code. However, the mechanical </head> insertion broke a production page, and the token-precedence logic in MY_Security undermines the header approach for serialized forms.
+Strengths:
+  - Reads the token from the cookie at send time, which avoids staleness from csrf_regenerate
+  - Same-origin checks on XHR, fetch and forms, so the token is never sent to NPCI or other external origins
+  - Covers scripted form.submit() and submitter formaction/formmethod, and uses getAttribute to avoid shadowing by named inputs
+  - An idempotent guard (window.__csrfTokenSupport) makes double inclusion safe
+  - MY_Security delegates to parent::csrf_verify(), keeps honouring config csrf_exclude_uris, and has no effect while protection is off
+  - The exempt list is commented by caller type
+Areas for Improvement:
+  - Remove the csrf.js injection from recon-dashboard.php, and audit the other replaced </head> occurrences to confirm each is real document markup
+  - Prefer the X-CSRF-Token header over a $_POST token when both are present
+  - Reconcile exemptions such as home/.* (listed as keep-protected in the plan) and add a comment for each uncommented exemption
+  - No automated tests or a documented local verification for the header path and the exempt-URI matching
+
+Database Recommendations
+------------------------
+None identified.
+
+Business Context Review
+-----------------------
+Status: COMPLETED
+
+Requirements: 6 identified, 5 covered, 1 partially covered
+Scenarios: 8 identified, 8 covered, 0 missing
+Business Rules: 6 identified, 5 satisfied, 1 violated
+
+Total Business Findings: 2
+
+[MEDIUM] application/core/MY_Security.php:28 - Routes the Business Context marks as protected browser pages are exempt with no stated reason
+    category=BUSINESS_RULE confidence=0.82
+    The Business Context lists `home/*`, `edgeverve` and the `*-report` routes as browser pages that should stay protected. It allows moving a route to the exempt list only after reading its controller, and then only with a comment. Here `home/.*` (line 28), `edgeverve` and the four whatsapp/sms `*-report` routes (line 31) are exempt with no comment, so reviewers cannot confirm these are machine callers. If any of them are browser forms, they lose CSRF protection when PR 2 turns protection on. Either add a one-line classification comment for each route showing the machine caller, or remove them from `$_csrf_machine_uris`.
+
+[LOW] application/modules/cbs/views/reports/reconciliation/recon-dashboard.php:710 - csrf.js tag was added to generated export content instead of the page head
+    category=EXPECTED_BEHAVIOUR confidence=0.90
+    This `</head>` is inside a JavaScript template string (note the `${date}` placeholder) that builds the HTML for the NTSL daily Excel export, not the real page head. So every exported file will now include a `<script>` tag that points at the server, and the dashboard page itself does not get csrf.js from this change. The Business Context asks for the script tag to be added after jQuery on interactive pages that POST. Revert this line and, if the dashboard needs csrf.js and its layout does not already load it, add it to the real page head.
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Branch comparison mode: this review is not published to GitHub -- there is no pull request to attach it to.
+EXIT=0 TOOK=209s

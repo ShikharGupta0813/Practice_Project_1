@@ -1,0 +1,107 @@
+2026-10-15 10:50:29 [INFO] Review succeeded on attempt 1/3 with 1 finding(s).
+Fetching metadata for PR #13736...
+Running review with provider 'antigravity'...
+
+AI Review Summary
+
+Overview:
+  What Changed: Introduced mobile API endpoints and dashboard data formatters for CRIF credit score screens, including 30-day report caching, tradeline payment history, credit score timelines, and account error reporting. Replaced admin print view with server-side PDF generation styled to match the Equifax report layout.
+  Files Modified: application/config/routes.php, application/libraries/CrifCreditDashboard.php [NEW], application/libraries/common/DbTable.php, application/modules/mobile_app/controllers/apiv6/CrifCreditReport.php, application/modules/mobile_app/controllers/mis/CrifBureau.php, application/views/admin/pdf/crif_credit_report.php, assets/custom/js/crif_bureau.js
+  High-Level Impact: Enables mobile users to inspect comprehensive credit profiles from stored CRIF reports without incurring bureau API costs on every screen access. Standardizes PDF report generation across credit bureau providers.
+  Potential Review Focus: Report cache validation and refresh timing in CrifCreditReport, fallback handling for inquiries created prior to schema changes, and database prerequisites for newly introduced columns and tables.
+
+Code Flow Diagram
+-----------------
+Illustrates the credit report retrieval flow, showing the 30-day cache validation check, rate-limit check, and bureau question/completion paths.
+
+```mermaid
+flowchart TD
+    A[Customer calls initiate] --> B{Valid Report < 30 Days?}
+    B -->|Yes| C[Return Cached Score & Details]
+    B -->|No| D{Exceeds Daily Limit?}
+    D -->|Yes| E[Return Limit Reached Error]
+    D -->|No| F[Call CRIF Bureau Service]
+    F --> G{CRIF Stage Reply}
+    G -->|Question S11| H[Prompt Identity Question Screen]
+    G -->|Report Finished| I[Encrypt & Save with report_fetched_at]
+    I --> J[Return Score & Dashboard Screens]
+```
+
+Relevant code: application/modules/mobile_app/controllers/apiv6/CrifCreditReport.php, application/libraries/CrifCreditDashboard.php
+
+Critical: 0
+High: 1
+Medium: 0
+Low: 0
+Suggestion: 0
+
+Total Findings: 1
+
+[HIGH] application/modules/mobile_app/controllers/apiv6/CrifCreditReport.php:702 - Missing updated_at fallback in canRefresh causes cache bypass
+    category=Correctness confidence=0.92
+    While `reportInfo()` falls back to `updated_at` when `report_fetched_at` is empty, `canRefresh()` passes an empty string directly to `nextRefreshTime()`. Consequently, `canRefresh()` evaluates to `true` even while `reportInfo()` reports a future `next_refresh_on` timestamp. For inquiries fetched prior to adding `report_fetched_at`, calls to `initiate` will bypass the 30-day cache check and trigger redundant, billable CRIF pulls. Update `canRefresh()` to apply the same `updated_at` fallback to keep caching behavior and response metadata consistent.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: HIGH
+Summary: The PR addresses domain-heavy credit bureau reporting logic, spanning detailed financial tradeline parsing, multi-factor score analysis, 30-day caching rules, and cross-platform PDF layout generation.
+Factors:
+  - Complex data parsing of nested CRIF bureau segments into mobile-ready screen payloads
+  - Implementation of financial credit factor evaluations (utilization, delinquency, history length, inquiries)
+  - Multi-year tradeline payment history reconstruction mapping asset codes and days past due
+  - Coordination of caching policies with third-party paid API limits and mobile inquiry states
+
+Fix Quality
+Level: GOOD
+Summary: The implementation cleanly encapsulates CRIF report parsing within CrifCreditDashboard and introduces robust data extraction helpers, though cache fallback inconsistency needs correction.
+Strengths:
+  - Well-structured separation of concerns in CrifCreditDashboard, avoiding code bloat in controller endpoints
+  - Defensive value extraction using helper functions (number, date, daysPastDue) preventing runtime notices on missing attributes
+  - Sensitive data protection via pseudonymous account IDs and masked account numbers
+  - Modular screen configuration supporting dynamic section visibility via environment variables
+Areas for Improvement:
+  - Align fallback timestamp logic between canRefresh() and reportInfo() to prevent cache invalidation anomalies on pre-existing inquiries
+  - Automate required schema migrations (report_fetched_at and tbl_crif_report_error) via repository migration scripts rather than manual execution
+
+Database Recommendations
+------------------------
+[HIGH] SCHEMA_CHANGE_CHECK
+    Table: tbl_crif_inquiry
+    Columns: report_fetched_at
+    Recommendation: Verify that column `report_fetched_at` (DATETIME NULL) has been added to `tbl_crif_inquiry` in production before deploying.
+    Reason: The queries in `latestReport()` and record updates in `finish()` directly reference `report_fetched_at`. Endpoints will encounter SQL runtime errors if the column is absent.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] INDEX_CHECK
+    Table: tbl_crif_inquiry
+    Columns: customer_id, state, report_fetched_at
+    Recommendation: Verify whether composite index `idx_crif_customer_state` on `(customer_id, state, report_fetched_at)` is present on `tbl_crif_inquiry`.
+    Reason: `latestReport()` filters by `customer_id` and `state = 'done'` with `ORDER BY report_fetched_at DESC`. The composite index prevents filesort operations over large inquiry tables.
+    Action: Cross-check the actual database before release.
+
+[HIGH] SCHEMA_CHANGE_CHECK
+    Table: tbl_crif_report_error
+    Columns: company_id, customer_id, inquiry_id, report_id, account_ref, account_type, lender, account_number, reason, status, created_at
+    Recommendation: Verify that table `tbl_crif_report_error` is created in the production database prior to deploying the `api/v6/crif/report-error` route.
+    Reason: `handleReportError()` executes select and insert queries against `tbl_crif_report_error`. Calls to the report-error endpoint will fail if the table does not exist.
+    Action: Cross-check the actual database before release.
+
+[LOW] CONSTRAINT_CHECK
+    Table: tbl_crif_report_error
+    Columns: customer_id, report_id, account_ref, reason, status
+    Recommendation: Verify whether a unique constraint or composite index exists on `(customer_id, report_id, account_ref, reason, status)` in `tbl_crif_report_error`.
+    Reason: The application code checks for an existing open error record before inserting, but concurrent duplicate requests could result in duplicate records without a database-level uniqueness constraint.
+    Action: Cross-check the actual database before release.
+
+Business Context Review
+-----------------------
+Status: NOT PROVIDED
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Dry run: skipping publish step. No changes were made to GitHub.
+EXIT=0 TOOK=402s

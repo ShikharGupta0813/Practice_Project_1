@@ -1,0 +1,120 @@
+2026-09-29 10:24:47 [INFO] Review succeeded on attempt 1/3 with 3 finding(s).
+Fetching metadata for PR #13422...
+Running review with provider 'claude'...
+
+AI Review Summary
+
+Overview:
+  What Changed: Freshdesk (Customer Support) credentials now come from the new vendor configuration tables. Before this PR, the API key and password were read from .env and the domain was hardcoded. The PR adds a CUSTOMER_SUPPORT_MODULE slug constant and a new getGlobalVendorModuleConfig() helper, which resolves the oldest active vendor mapping for a slug without a company join and loads its master config through getCompanyVendorConfiguration(0, 0, $vmmId). Both Freshdesk controller constructors are updated to use this config and fall back to the old values when a field is empty. The ticket view's 'Open in Freshdesk' link now uses the configured domain.
+  Files Modified: application/config/constants.php, application/helpers/common_helper.php, application/modules/mobile_app/controllers/communication/CommunicationFreshdesk.php, application/modules/mobile_app/controllers/communication/Freshdesk.php, application/modules/mobile_app/views/communication/freshdesk/view-ticket.php
+  High-Level Impact: The source of the Freshdesk API credentials and target host moves from the deployment environment to admin-managed database rows. Every instantiation of either Freshdesk controller now runs a 3-table join plus a config load and secret decryption. Behavior should stay the same until the vendor rows are entered, because each field falls back to the old value independently.
+  Potential Review Focus: Check that getCompanyVendorConfiguration(0, 0, $vmmId) returns a flat key => value array with decrypted DOMAIN/API_KEY/PASSWORD, so the controllers' $config['API_KEY'] access works. Check that the Freshdesk.php view render passes $this->data, so $freshdesk_domain is defined in view-ticket.php. Review the per-field fallback, which can combine a DB-sourced domain with .env credentials. Confirm that the admin-generated slug matches 'customer_support_customer_support' exactly.
+
+Code Flow Diagram
+-----------------
+Shows how the Freshdesk controllers now resolve their credentials and domain from the global vendor configuration, and when they fall back to the old .env and hardcoded values.
+
+```mermaid
+flowchart TD
+    A[Freshdesk controller constructor] --> B[getGlobalVendorModuleConfig customer_support slug]
+    B --> C{Active child module + vendor mapping found?}
+    C -->|No| E[Empty config]
+    C -->|Yes| D[getCompanyVendorConfiguration 0,0,vmmId - decrypt secrets]
+    D --> F{Field non-empty?}
+    E --> G[Fallback: .env API key/password, hardcoded domain]
+    F -->|Yes| H[Use DB value for DOMAIN / API_KEY / PASSWORD]
+    F -->|No| G
+    H --> I[Freshdesk API calls + ticket view link]
+    G --> I
+```
+
+Relevant code: application/helpers/common_helper.php, application/modules/mobile_app/controllers/communication/Freshdesk.php, application/modules/mobile_app/controllers/communication/CommunicationFreshdesk.php, application/modules/mobile_app/views/communication/freshdesk/view-ticket.php
+
+Critical: 0
+High: 0
+Medium: 1
+Low: 1
+Suggestion: 1
+
+Total Findings: 3
+
+[MEDIUM] application/modules/mobile_app/controllers/communication/Freshdesk.php:22 - Configured Freshdesk domain is used without validation for credentialed API calls
+    category=Security confidence=0.82
+    DOMAIN is now read from an admin-editable DB row and used, with only trimming, as the base URL for requests that send the API key and password. It is also written unescaped into an href in view-ticket.php. Each field falls back separately, so a DOMAIN that is mistyped or maliciously set while API_KEY/PASSWORD are still empty will send the production .env credentials to that host. It also allows a non-http(s) scheme in the rendered link. Before use, check that DOMAIN is https and that its host is on a Freshdesk allowlist, and consider falling back as a group (all three from the DB or all three from the old source) instead of per field. The same code is in CommunicationFreshdesk.php.
+
+[LOW] application/helpers/common_helper.php:2673 - Helper returns priority and is_configured as constant 0 even when config is found
+    category=Maintainability confidence=0.80
+    getGlobalVendorModuleConfig() claims to return the same shape as getVendorModuleConfig(), but it never fills in 'priority' or 'is_configured'. A successful resolution therefore returns status=true with is_configured=0. Any future caller that checks is_configured, as the company-level resolver's callers may do, will wrongly treat the module as unconfigured. Either fill in these fields, for example is_configured = !empty($response['config']), or remove them from this helper's response.
+
+[SUGGESTION] application/modules/mobile_app/controllers/communication/CommunicationFreshdesk.php:18 - Credential-resolution and fallback logic is duplicated across two controllers
+    category=Maintainability confidence=0.80
+    The same six lines of lookup, trimming and fallback now appear in both Freshdesk.php and CommunicationFreshdesk.php, including the hardcoded fallback domain. Any later change, such as domain validation or dropping the .env fallback, must be made in both places and could drift. Consider one small shared helper, such as getFreshdeskCredentials(), that both constructors call.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: The code change itself is small. Moving API credentials to a new config source adds concerns about backward-compatible fallback, secret decryption, slug matching against admin-generated data, and a global (company 0) resolution path that the existing resolver does not support.
+Factors:
+  - Credentials move from environment/hardcoded values to admin-managed, encrypted DB configuration
+  - A new global (non-company) resolution path is needed because OneStack users have a null/0 company_id
+  - Correctness depends on the admin-entered data producing the exact slug the code expects
+  - Backward-compatible fallback is required until rows exist in each environment (rbank, production)
+  - Two controllers and a view share the credential and domain values
+
+Fix Quality
+Level: GOOD
+Summary: The implementation follows the existing vendor-config pattern, uses a parameterized query, and keeps current behavior through fallbacks. It lacks domain validation, repeats the controller logic, and has no automated tests.
+Strengths:
+  - The new helper uses a parameterized query and reuses getCompanyVendorConfiguration() for secret decryption instead of reimplementing it
+  - Fallbacks keep today's .env and hardcoded values until the config rows exist, which makes deployment low-risk
+  - The ticket view's hardcoded domain is replaced with the configured domain, keeping links consistent with API calls
+  - Trailing slashes are trimmed from the domain, which prevents double-slash URLs
+Areas for Improvement:
+  - Validate the scheme and host of the configured DOMAIN before sending credentials to it or rendering it in an href
+  - Fall back as a group, not per field, so DB and .env values are never mixed
+  - Move the repeated constructor logic into one shared helper
+  - Fill in or remove the placeholder is_configured/priority fields in the helper response
+  - Add at least a unit test for getGlobalVendorModuleConfig() covering the found, not-found and empty-slug cases
+
+Database Recommendations
+------------------------
+[MEDIUM] PRODUCTION_DB_VERIFICATION
+    Table: tbl_module_childs
+    Columns: child_module_slug, status
+    Recommendation: After the admin data setup, check in each environment (rbank, production) that exactly one active tbl_module_childs row has child_module_slug = 'customer_support_customer_support'. Also check that it is linked to an active tbl_vendor_module_mapping row and an active tbl_vendor_master row.
+    Reason: The code resolves configuration only by this exact slug. Any mismatch in the admin-entered names makes it fall back silently to .env values, so the new config is never used.
+    Action: Cross-check the actual database before release.
+
+[LOW] INDEX_CHECK
+    Table: tbl_module_childs
+    Columns: child_module_slug, status
+    Recommendation: Check whether tbl_module_childs has an index covering child_module_slug, and check that tbl_vendor_module_mapping has an index on child_module_id.
+    Reason: The new query filters on child_module_slug and joins on vmm.child_module_id, and it runs on every instantiation of both Freshdesk controllers.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] COLUMN_EXISTENCE_CHECK
+    Table: tbl_vendor_module_mapping
+    Columns: id, child_module_id, vendor_id, status, vendor_module_slug
+    Recommendation: Check that these columns exist on tbl_vendor_module_mapping, and that tbl_vendor_master has vendor_name, vendor_code and status, in both rbank and production.
+    Reason: The new helper selects and joins on these columns. A missing column would make the query fail inside the controller constructors and break the support tickets pages.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] PRODUCTION_DB_VERIFICATION
+    Table: tbl_vendor_module_mapping
+    Columns: child_module_id, status
+    Recommendation: Check that only one active vendor mapping exists for the Customer Support child module. If a second vendor is ever added, confirm that picking the lowest vmm.id is the intended behavior.
+    Reason: The helper uses ORDER BY vmm.id ASC LIMIT 1 and ignores any priority setting, so extra active mappings would be ignored without any warning.
+    Action: Cross-check the actual database before release.
+
+Business Context Review
+-----------------------
+Status: NOT PROVIDED
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Dry run: skipping publish step. No changes were made to GitHub.
+EXIT=0 TOOK=57s

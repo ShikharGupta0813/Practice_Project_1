@@ -1,0 +1,56 @@
+Local review: 3 changed file(s) vs origin/onestackcbs, 14498 chars of diff, provider 'claude'
+Nothing is sent to GitHub.
+
+
+AI Review Summary
+
+Overview:
+  What Changed: Adds a helper (logIoCall) and library method (AppLog::attempt) that temporarily install a PHP error handler around individual filesystem calls (mkdir, fopen, fwrite, fputcsv, file_put_contents) so the real OS-level failure reason can be captured even though CodeIgniter's own error handler silently drops warnings under error_reporting(E_ERROR) in production. A new reportLogWriteFailure()/AppLog::reportFailure() builds one detailed diagnostic log line (absolute path, reason, running user, folder/file ownership and permissions) and replaces the old one-line 'cannot create log directory'/'write failed' messages in ensureLogDir(), writeLog(), writeLogRaw() and AppLog::makeLogDir()/save(). The branch also currently contains a commit that adds a TEMPORARY instrumentation write in Auth.php's login page path, explicitly marked in the commit message to be reverted before the production PR.
+  Files Modified: application/controllers/Auth.php, application/helpers/common_helper.php, application/libraries/AppLog.php
+  High-Level Impact: No change to the success path of any log writer; only failure-path diagnostics are affected, so risk is confined to error handling and log output. The custom error-handler-swap pattern is duplicated (by design) between common_helper.php and AppLog.php. The temporary Auth.php commit changes runtime behavior of the public, unauthenticated login page by adding a filesystem write on every render, and per the PR description is not intended to reach the target of this PR.
+  Potential Review Focus: Whether the TEMPORARY Auth.php commit should actually be part of this PR given the stated Base Branch is onestackcbs; correctness of the set_error_handler/restore_error_handler pairing in logIoCall()/attempt() across all call sites; whether reportLogWriteFailure()'s extra stat/posix lookups on every failure are acceptable during a sustained outage on a hot logging path.
+
+Critical: 0
+High: 1
+Medium: 0
+Low: 0
+Suggestion: 0
+
+Total Findings: 1
+
+[HIGH] application/controllers/Auth.php:957 - Temporary debug write on the public login page targets the production base branch
+    category=Reliability confidence=0.86
+    This commit adds a writeLogRaw() call (with folder creation) on every render of the unauthenticated login page, and its own message states it 'must be reverted before the production PR from this branch.' The PR context here lists Base Branch as onestackcbs, meaning as currently constituted this PR would ship the temporary instrumentation straight to production instead of onestackcbs-dev. Merging this as-is adds unbounded per-request disk I/O to a public, frequently-hit endpoint that was never meant to carry it. Confirm the base branch/target before merge, or drop this commit from the PR entirely.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: The core problem is a subtle PHP/CodeIgniter interaction (CI's error handler discarding warnings under error_reporting(E_ERROR), making error_get_last() unreliable) that was hard to diagnose but is narrow in scope, touching only log-write diagnostics across three files with no data model, API, or success-path changes.
+Factors:
+  - Root cause required understanding CodeIgniter's custom error handler and its interaction with production error_reporting(E_ERROR)
+  - Fix had to be applied consistently across multiple call sites (writeLog, writeLogRaw, ensureLogDir, AppLog::save/makeLogDir) without changing the success path
+  - AppLog needed an independent implementation to avoid a hard dependency on the helper file
+  - No database, API, or cross-service changes involved
+
+Fix Quality
+Level: STRONG
+Summary: The implementation directly addresses the documented root cause, is applied consistently across all affected call sites with a safe fallback when the helper isn't loaded, and the author states it was verified under production-like error_reporting conditions for each failure type.
+Strengths:
+  - set_error_handler/restore_error_handler is correctly paired with try/finally so the previous (CodeIgniter) handler is always restored
+  - Diagnostic output includes absolute path, captured reason, running user, and ownership/permissions of the relevant folder/file, replacing vague one-line messages
+  - AppLog retains a working fallback (reportFailure) if common_helper.php's reportLogWriteFailure() is not loaded
+  - Existing call sites (writeLog, writeLogRaw, AppLog) were updated uniformly rather than partially
+Areas for Improvement:
+  - No automated test coverage was added for the new failure-reporting paths; verification described is manual/exploratory only
+  - The TEMPORARY Auth.php login-page instrumentation is included in this PR despite the commit message stating it must be removed before the production PR
+  - The error-handler-swap logic (logIoCall / AppLog::attempt) is duplicated between the two files; acceptable given the stated decoupling rationale but worth a shared note if AppLog's dependency posture ever changes
+
+Business Context Review
+-----------------------
+Status: NOT PROVIDED
+
+
+Findings JSON: /mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/reviews/local-sg_cl_log_write_error_reason-claude.json
+EXIT=0 TOOK=226s

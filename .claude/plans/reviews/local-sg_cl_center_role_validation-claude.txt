@@ -1,0 +1,78 @@
+2026-09-30 13:06:20 [INFO] Review succeeded on attempt 1/3 with 0 finding(s).
+2026-09-30 13:07:39 [INFO] Business review succeeded on attempt 1/3 with 0 finding(s).
+Comparing branches: 'sg_cl_center_role_validation' -> 'onestackcbs'...
+Running review with provider 'claude'...
+Running Business Context review...
+
+AI Review Summary
+
+Overview:
+  What Changed: The PR tightens server-side validation of the 'role' field in CenterManagement::addUpdateCenterContact(). The old character-set check (callback_alpha_dash_space) is replaced with an allowlist, in_list[5,7,8,9], plus a custom 'Please select a valid Role' message. After validation passes, the role is read once through $this->input->post('role') into $role_id. All five raw $_POST['role'] reads (role-name lookup, contact insert, contact update, new console user, existing console user update) now use $role_id.
+  Files Modified: application/modules/cbs/controllers/CenterManagement.php
+  High-Level Impact: This closes a privilege-escalation path. A bank admin could tamper with the role value in the request and create or update a centre contact's console login with a role the form does not offer, such as Bank Admin. Invalid values now go down the existing form_validation failure path, so no contact or user row is written. There is no schema change and no performance impact. One visible behaviour change: editing a legacy contact whose stored role is outside 5/7/8/9 is now rejected until a valid role is picked.
+  Potential Review Focus: Check that the allowlist 5, 7, 8, 9 matches the options in center-contact-details.php and the intended roles in tbl_cbs_role_master. Check that no other path relied on sending other role IDs through this endpoint. Check that the per-field in_list message appears next to the role field. The existing-user overwrite of cbs_role_id and company_id at the users update, and the same raw $_POST['role'] pattern in sibling controllers, are deliberately out of scope and still need their own follow-up tasks.
+
+Critical: 0
+High: 0
+Medium: 0
+Low: 0
+Suggestion: 0
+
+Total Findings: 0
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: LOW
+Summary: This is a single-endpoint input-validation fix: restrict one form field to a fixed set of four global role IDs and use the validated value everywhere it is written. Tenant scoping is already enforced by the existing bank_id session check.
+Factors:
+  - Only one controller method is affected, and it has a single AJAX caller
+  - The allowed roles are a small, global, fixed set with no per-tenant rules
+  - The field feeds a security-sensitive privilege assignment (console user cbs_role_id)
+  - One edge case matters: legacy contacts holding roles outside the allowlist
+
+Fix Quality
+Level: GOOD
+Summary: The change fixes the root cause with the framework's built-in in_list rule and replaces every raw $_POST['role'] use in the method. Invalid input goes down the existing error path, and nothing is written. It is minimal and follows the business plan, but no automated regression coverage is added.
+Strengths:
+  - A server-side allowlist (in_list[5,7,8,9]) replaces a character-set check that allowed any role ID
+  - All five raw $_POST['role'] usages are replaced with a single $role_id read through the input layer after validation
+  - Rejections reuse the existing form_validation failure path, so no partial contact or user rows are written
+  - The per-field custom error message gives the user a clear 'Please select a valid Role' prompt
+Areas for Improvement:
+  - The allowed role IDs are now hardcoded in both the controller and the view. A shared constant or config entry would stop the server allowlist and the dropdown from drifting apart.
+  - No automated regression test checks that disallowed roles (e.g. 2, 999999, non-numeric) are rejected and write no rows.
+
+Database Recommendations
+------------------------
+[LOW] PRODUCTION_DB_VERIFICATION
+    Table: tbl_cbs_role_master
+    Columns: id, role_name, status
+    Recommendation: Verify that ids 5, 7, 8 and 9 in tbl_cbs_role_master exist, are active, and map to Center Manager, Operation Manager, Tech Manager and Finance Manager in production.
+    Reason: The PR hardcodes this allowlist and still looks up role_name by id. If the IDs map differently in production, the wrong role name or permissions would be assigned.
+    Action: Cross-check the actual database before release.
+
+[INFO] PRODUCTION_DB_VERIFICATION
+    Table: tbl_company_contact
+    Columns: role_id
+    Recommendation: Count existing centre contacts (and linked console users' cbs_role_id) with role_id outside 5, 7, 8, 9.
+    Reason: These records can no longer be edited through this form until a valid role is chosen. Any such records created through tampering may also need remediation.
+    Action: Cross-check the actual database before release.
+
+Business Context Review
+-----------------------
+Status: COMPLETED
+
+Requirements: 3 identified, 3 covered, 0 partially covered
+Scenarios: 5 identified, 5 covered, 0 missing
+Business Rules: 3 identified, 3 satisfied, 0 violated
+
+Total Business Findings: 0
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Branch comparison mode: this review is not published to GitHub -- there is no pull request to attach it to.
+EXIT=0 TOOK=155s

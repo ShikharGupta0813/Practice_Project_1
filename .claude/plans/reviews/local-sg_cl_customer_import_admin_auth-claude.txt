@@ -1,0 +1,88 @@
+2026-09-29 13:15:23 [WARNING] Business Context source '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134095.md' failed to load: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134095.md' must start with 'file:', 'asana:', or 'notion:'.
+2026-09-29 13:15:23 [ERROR] Business Context error: All Business Context sources failed to load: /mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134095.md: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134095.md' must start with 'file:', 'asana:', or 'notion:'.
+2026-09-29 13:16:39 [INFO] Review succeeded on attempt 1/3 with 2 finding(s).
+Comparing branches: 'sg_cl_customer_import_admin_auth' -> 'onestackcbs'...
+Running review with provider 'claude'...
+
+AI Review Summary
+
+Overview:
+  What Changed: CustomerAccountImport and CbsCustomerAccountImport now extend Admin_Controller instead of CI_Controller, so they require an admin login. The queue-processing methods (process_customer_account_import_queue, process_customer_account_card_import_queue, the legacy new_process_customer_account_import_queue) and their validation helpers moved verbatim into a new CustomerAccountImportCron controller that still extends CI_Controller. The two cron routes in cbs-routes.php now point at the new controller.
+  Files Modified: application/config/cbs-routes.php, application/modules/cbs/controllers/CbsCustomerAccountImport.php, application/modules/cbs/controllers/CustomerAccountImport.php, application/modules/cbs/controllers/CustomerAccountImportCron.php [NEW]
+  High-Level Impact: The admin-facing import endpoints (queue add/delete/list, card import queue) now sit behind admin authentication. The bulk import processors, which create and update customers, accounts, cards, merchant details and bank products, stay reachable without authentication through the new cron controller. The processing logic itself is unchanged, so there is no functional or performance change to the import path.
+  Potential Review Focus: 1) Whether production cron jobs or any other caller invoke these methods through a path other than the two cron/... routes changed here (for example a CLI call such as `php index.php cbs/CustomerAccountImport/...` or a direct controller URL). Those callers would now fail. 2) Whether any route in routes.php or the environment-specific routes.php / cbs-routes.php files still points at the removed CustomerAccountImport methods. 3) Whether any non-admin route or AJAX caller targets CbsCustomerAccountImport methods, which now redirect to admin login. 4) Whether the new unauthenticated cron controller needs a caller guard.
+
+Code Flow Diagram
+-----------------
+Shows how customer import requests are split after this PR: admin routes go through admin authentication, while the cron routes reach the new controller without authentication.
+
+```mermaid
+flowchart TD
+    A[Incoming request] --> B{Route prefix}
+    B -->|admin/...| C[CustomerAccountImport / CbsCustomerAccountImport]
+    C --> D[Admin_Controller auth check]
+    D -->|Logged-in admin| E[Queue add / delete / list]
+    D -->|Not admin| F[Redirect to login]
+    B -->|cron/process-...-queue| G[CustomerAccountImportCron]
+    G --> H[No auth check]
+    H --> I[Process import queue: create/update customers, accounts, cards]
+```
+
+Relevant code: cbs-routes.php, CustomerAccountImport.php, CbsCustomerAccountImport.php, CustomerAccountImportCron.php
+
+Critical: 0
+High: 0
+Medium: 1
+Low: 1
+Suggestion: 0
+
+Total Findings: 2
+
+[MEDIUM] application/modules/cbs/controllers/CustomerAccountImportCron.php:10 - New cron controller that writes customer and account data has no caller guard
+    category=Security confidence=0.85
+    CustomerAccountImportCron extends CI_Controller and does no caller check, so anyone who can reach cron/process-customer-account-import-queue (or the auto-routed cbs/CustomerAccountImportCron/<method> URL) can start bulk processing. That processing creates and updates customers, accounts, cards and bank products. This exposure existed before, but this PR moves the heaviest write path out of the controller it locks down and into a new unauthenticated entry point, so the admin-auth goal is only partly met. Consider restricting the controller to its real caller, for example is_cli() or a shared cron secret/IP check, matching how other cron controllers in the codebase are protected.
+
+[LOW] application/modules/cbs/controllers/CustomerAccountImportCron.php:34 - Dead debug method and public helpers moved into the unauthenticated controller
+    category=Maintainability confidence=0.88
+    No route in this diff references new_process_customer_account_import_queue (only the two process_* methods are routed), and the method is unreachable debug code: it calls exit() partway through, has `echo print_r(...); exit()`, and uses the undefined $data and $this->account. It was copied into a controller with no authentication instead of being deleted. The validate* helpers are also public, so they can be called from a URL; validateCustomerFields index 6, for example, runs PAN lookup queries and writes them to testing/ logs. Delete the dead method and make the helpers private so the new controller exposes only the two cron entry points.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: The code change is mechanical (change the parent class, move methods, repoint routes). The hard part is making sure every non-admin caller, such as cron jobs and routes spread across several route files, is moved off the newly protected controllers without breaking production imports.
+Factors:
+  - Authorization change on core-banking customer/account import endpoints
+  - Admin traffic and cron traffic have to be split so scheduled jobs don't hit the admin login
+  - Routes are spread across several merged route files, and production cron invocation paths are not visible in the diff
+  - About 1,000 lines of processing logic moved between controllers, which must stay behaviourally identical
+
+Fix Quality
+Level: GOOD
+Summary: The admin-facing import endpoints are now protected, and cron processing was split out cleanly with routes updated to match. However, the new cron controller has no protection of its own and carries dead debug code and public helpers with it.
+Strengths:
+  - Minimal, targeted parent-class change on both import controllers, using the existing Admin_Controller hierarchy
+  - Cron processing moved to a dedicated controller instead of weakening the auth check on the admin controller
+  - Both cron routes repointed in the same change, and the processing logic moved verbatim, so there is no behaviour drift
+Areas for Improvement:
+  - Add a caller guard (CLI-only or a shared secret) to CustomerAccountImportCron
+  - Delete new_process_customer_account_import_queue instead of moving it, and make the validate* helpers private
+  - Confirm that no environment-specific route file or production crontab still targets the removed CustomerAccountImport methods
+
+Database Recommendations
+------------------------
+None identified.
+
+Business Context Review
+-----------------------
+Status: NOT COMPLETED
+Reason: All Business Context sources failed to load: /mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134095.md: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134095.md' must start with 'file:', 'asana:', or 'notion:'.
+Technical Review: COMPLETED
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Branch comparison mode: this review is not published to GitHub -- there is no pull request to attach it to.
+EXIT=0 TOOK=76s

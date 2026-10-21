@@ -1,0 +1,79 @@
+2026-09-30 05:26:49 [WARNING] Business Context source '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134088.md' failed to load: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134088.md' must start with 'file:', 'asana:', or 'notion:'.
+2026-09-30 05:26:49 [ERROR] Business Context error: All Business Context sources failed to load: /mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134088.md: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134088.md' must start with 'file:', 'asana:', or 'notion:'.
+2026-09-30 05:30:09 [INFO] Review succeeded on attempt 1/3 with 1 finding(s).
+Comparing branches: 'sg_cl_no_suffix_admin_routes' -> 'onestackcbs'...
+Running review with provider 'claude'...
+
+AI Review Summary
+
+Overview:
+  What Changed: This PR is a route-hygiene change across three commits. (1) It comments out about 150 bare 'admin/<slug>' routes in routes.php and cbs-routes.php, marking each with '// UNUSED-ROUTE:'. These routes have no '<module>-<action>' permission segment, and they are either unreferenced or already unreachable. (2) Nine routes that are still in use get a proper '<module>-view' or '<module>-edit' segment: documents-render, i4c get-reports and submit-status-update, the three soundbox MIS summary reports and their exports, the soundbox-ticket customer and soundbox detail lookups, and the communication, ticket and FAQ loadView endpoints. Their callers are updated to match: views, the Documents controller's action URL, the customer-bank dropdown in main_header.php, and three ClientTicketListModel redirects. (3) About 30 commented-out-HTML 'Go Back' links are repointed to 'admin/bank-list-view/bank-master'.
+  Files Modified: application/config/cbs-routes.php, application/config/routes.php, application/models/common/ClientTicketListModel.php, application/models/pagination/ClientTicketListModel.php, application/modules/cbs/controllers/Documents.php, application/modules/cbs/views/account-passbook.php, application/modules/cbs/views/cheque-enquiry.php, application/modules/cbs/views/communication-email-mangement.php, application/modules/cbs/views/communication-mailer-mangement.php, application/modules/cbs/views/communication-notification-mangement.php, application/modules/cbs/views/communication-sms-mangement.php, application/modules/cbs/views/communication-whatsapp-mangement.php, application/modules/cbs/views/compliance-management.php, application/modules/cbs/views/compliance/i4c_desk.php, application/modules/cbs/views/credit-card-management.php, application/modules/cbs/views/crm-mangement.php, application/modules/cbs/views/customer-passbook.php, application/modules/cbs/views/demand-draft.php, application/modules/cbs/views/deposit-management.php, application/modules/cbs/views/deposite-money.php, application/modules/cbs/views/faq-management.php, application/modules/cbs/views/fixed-deposit.php, application/modules/cbs/views/fund-transfer-other-bank.php, application/modules/cbs/views/fund-transfer-within-bank.php, application/modules/cbs/views/fund-transfer.php, application/modules/cbs/views/lead-mangement.php, application/modules/cbs/views/loan-management.php, application/modules/cbs/views/misc-mangement.php, application/modules/cbs/views/npci-mangement.php, application/modules/cbs/views/payee-management.php, application/modules/cbs/views/risk-management.php, application/modules/cbs/views/role-management.php, application/modules/cbs/views/statement-passbook.php, application/modules/cbs/views/switch-integration-mangement.php, application/modules/cbs/views/third-party-integration.php, application/modules/cbs/views/ticket-mangement.php, application/modules/cbs/views/user-management.php, application/modules/cbs/views/withdraw-money.php, application/modules/mobile_app/models/pagination/ClientTicketListModel.php, application/modules/mobile_app/views/communication-faq-management.php, application/modules/mobile_app/views/communication/soundbox-tickets/index.php, application/modules/mobile_app/views/mis/summary-of-soundbox-language-report-onestack.php, application/modules/mobile_app/views/mis/summary-of-soundbox-sim-report-onestack.php, application/modules/mobile_app/views/mis/summary-of-soundbox-version-report-onestack.php, application/modules/mobile_app/views/products/faqs/index-subcat.php, application/views/admin/_templates/main_header.php, application/views/admin/faqs/index-subcat.php
+  High-Level Impact: Routes that are still in use now carry a '<module>-<action>' segment, so PermissionService's segment-based check applies to them. Users need a matching role permission to reach them: for example, 'i4c_desk-edit' is now required to submit an I4C status update, where the old bare route skipped the segment check. About 150 bare aliases stop resolving. Anything that still requests one of them gets a 404. That includes menu URLs stored in the database, bookmarks, and callers outside this repo. There are no schema or query changes.
+  Potential Review Focus: 1. Confirm every role that uses the I4C desk, soundbox tickets, soundbox MIS reports, documents, FAQ, ticket and SMS/email communication screens has the matching '-view' or '-edit' permission. Pay particular attention to 'i4c_desk-edit', which is a stricter action than the page's 'view'. 2. The sidebar is rendered from database menu nodes, so check that no menu row still points at a commented-out bare URL. 3. The 'UNUSED' list was based on in-repo references, so it cannot see external consumers of API-shaped routes such as the 'admin/v1/cardstore/*' endpoints. 4. Commenting out a route does not block CodeIgniter's default 'module/Controller/method' URI routing, so this is URL cleanup, not an access-control boundary.
+
+Critical: 0
+High: 0
+Medium: 1
+Low: 0
+Suggestion: 0
+
+Total Findings: 1
+
+[MEDIUM] application/config/routes.php:3040 - Versioned CardStore admin API disabled based only on in-repo usage
+    category=API confidence=0.80
+    All nine 'admin/v1/cardstore/*' routes are commented out as unused, but they are a versioned JSON API: CardStoreController dispatches on POST/PATCH/PUT and returns 401 JSON. Its consumers would be admin tooling or scripts, which a grep of views and JS cannot find. If anything outside this repo calls these endpoints, it will start getting 404s after deploy, and nothing will flag it. Either confirm with the CardStore owners or production access logs that nothing calls 'admin/v1/cardstore', or keep these routes and give them a proper '<module>-<action>' segment instead.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: Each change is mechanical, but the task needs a correct reachability analysis across about 4,700 lines of merged route files, dynamically built AJAX URLs ('#url' + data-controller) and a permission check that is derived from the URL segment. A mistake silently breaks a screen or changes who can access it.
+Factors:
+  - Routes are split across two large merged files, where a later key silently overrides an earlier one
+  - Many callers build URLs dynamically from data-controller attributes or base_url string concatenation, which makes usage detection error-prone
+  - Adding a '<module>-<action>' segment changes the result of the permission check, so this is also an authorization change
+  - The sidebar menu comes from the database, so some route consumers are not visible in code
+
+Fix Quality
+Level: GOOD
+Summary: The re-prefixed routes and their callers match up consistently. I checked the routes against the repo: the new keys exist, and the host pages sit under the same module prefix as the endpoints they now call. The main gap is that the 'unused' classification rests on in-repo references only, and the PR has no description of the method used or of the permission impact.
+Strengths:
+  - Every re-prefixed route is updated together with all its in-repo callers: the Documents controller action URL, the i4c_desk AJAX calls, the soundbox ticket and MIS report AJAX calls, the SMS, email, ticket and FAQ data-controller attributes, and the three ClientTicketListModel redirects
+  - New prefixes match the host page's module: soundbox MIS reports under 'onestack-view' (the same prefix as viewOnestackMisReports), i4c under 'i4c_desk-*', documents under 'documents-view'
+  - Routes are disabled by commenting them out with a greppable 'UNUSED-ROUTE:' marker, which matches the existing convention in these files and is easy to revert
+  - The WhatsApp view now points at the existing 'whatsapp-view/cbs/load-communication-Whatsappview' route, which the other panels on the same page already use
+Areas for Improvement:
+  - Document how routes were classified as unused, and check API-shaped routes (for example 'admin/v1/cardstore/*') against production access logs, not just a code search
+  - Record the permission impact in the PR, such as the I4C status submit now requiring 'i4c_desk-edit', so role configuration can be checked before release
+  - The PR description is empty; for a roughly 150-route removal, list the method used and the verification that was done
+
+Database Recommendations
+------------------------
+[HIGH] PRODUCTION_DB_VERIFICATION
+    Table: role/permission tables used by PermissionService
+    Columns: module slug, action
+    Recommendation: In production, verify that roles using these screens hold the matching permission: 'i4c_desk' with 'edit', 'soundbox_tickets' with 'view', 'onestack' with 'view', 'documents' with 'view', and 'view' on 'faq', 'communication_FAQS', 'ticket', 'sms' and 'email'.
+    Reason: The re-prefixed routes now pass through PermissionService's segment-based check. If a role lacks one of these module/action permissions, its users will be denied access, for example to I4C status submission or the soundbox ticket lookups.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] PRODUCTION_DB_VERIFICATION
+    Table: sidebar menu master table
+    Columns: url
+    Recommendation: Before deploying, check whether any stored menu URL matches a route commented out in this PR (for example 'admin/role-management', 'admin/user-management', 'admin/bank-master', 'admin/reports/*' or 'admin/transaction/bbps-transaction').
+    Reason: main_sidebar.php renders node URLs from data rather than hard-coded links, so a code search cannot rule out menu entries that point at the disabled routes.
+    Action: Cross-check the actual database before release.
+
+Business Context Review
+-----------------------
+Status: NOT COMPLETED
+Reason: All Business Context sources failed to load: /mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134088.md: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134088.md' must start with 'file:', 'asana:', or 'notion:'.
+Technical Review: COMPLETED
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Branch comparison mode: this review is not published to GitHub -- there is no pull request to attach it to.
+EXIT=0 TOOK=200s

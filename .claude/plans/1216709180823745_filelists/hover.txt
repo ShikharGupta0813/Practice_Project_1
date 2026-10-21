@@ -1,0 +1,2 @@
+assets/custom/js/application.js
+assets/custom/js/custom.js

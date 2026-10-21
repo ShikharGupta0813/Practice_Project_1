@@ -1,0 +1,114 @@
+2026-09-29 13:19:16 [WARNING] Business Context source '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md' failed to load: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md' must start with 'file:', 'asana:', or 'notion:'.
+2026-09-29 13:19:16 [ERROR] Business Context error: All Business Context sources failed to load: /mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md' must start with 'file:', 'asana:', or 'notion:'.
+2026-09-29 13:20:52 [INFO] Review succeeded on attempt 1/3 with 4 finding(s).
+Fetching metadata for PR #13441...
+Running review with provider 'antigravity'...
+
+AI Review Summary
+
+Overview:
+  What Changed: Introduced tenant scoping to the fetchBankDetails endpoint to restrict bank users to their own GST details, added a cron job to update customer KYC status when risk profiles expire, added Aadhaar verification checks alongside PAN verification in customer profile views and list models, and fixed NPCI mobile request ID references.
+  Files Modified: application/config/cbs-routes.php, application/modules/cbs/controllers/CbsCron.php, application/modules/cbs/controllers/CustomerProfileManagement.php, application/modules/cbs/views/customer-account-management/npci-merchant-addition.php, application/modules/cbs/views/customer-profile-management/kyc-information.php, application/modules/mobile_app/controllers/Bank_register_controller.php, application/modules/mobile_app/controllers/bank_onboarding_form/Bank_register_controller.php, application/modules/mobile_app/controllers/npci-upi/NpciMobileAPIV6.php, application/modules/mobile_app/models/bank_onboarding_form/CompanyMaster_model.php, application/modules/mobile_app/models/pagination/CustomersListModel.php
+  High-Level Impact: Impacts multi-tenant access control for bank credential exposure, background KYC verification state transitions, database query performance during cron runs, and customer KYC status presentation.
+  Potential Review Focus: Authentication validation in fetchBankDetails, performance of the updateExpiredKycStatus cron query and loop, and database column verification for is_aadhar_no_verified.
+
+Code Flow Diagram
+-----------------
+Request flow and authorization decision tree for fetchBankDetails showing the tenant check and the unauthenticated bypass path.
+
+```mermaid
+flowchart TD
+    A["Client sends POST /fetch-bank-detail with company_gstn"] --> B{"Session has company_id?"}
+    B -->|Yes: Bank User| C["Fetch company_gstn from tbl_company_master"]
+    B -->|No: OneStack User or Guest| D["Bypass tenant scoping"]
+    C --> E{"Does posted GSTN match own company_gstn?"}
+    E -->|No| F["Return error: Invalid user id"]
+    E -->|Yes| G["Query tbl_bank_onboarding by gst_number"]
+    D --> G
+    G --> H["Return bank details and credentials"]
+```
+
+Relevant code: application/modules/mobile_app/controllers/Bank_register_controller.php, application/modules/mobile_app/controllers/bank_onboarding_form/Bank_register_controller.php
+
+Critical: 2
+High: 1
+Medium: 1
+Low: 0
+Suggestion: 0
+
+Total Findings: 4
+
+[CRITICAL] application/modules/mobile_app/controllers/Bank_register_controller.php:916 - Unauthenticated Access Bypass Exposes Sensitive Bank Credentials
+    category=Security confidence=0.95
+    The tenant scoping check only executes when `$sessionCompanyID` is non-empty, assuming any request lacking `company_id` is an authorized OneStack user. Because unauthenticated requests also lack `company_id` and this route has no authentication middleware, external callers can bypass the check by omitting session cookies. This allows unauthenticated users or rogue bank users to harvest sensitive CBS API keys and settlement account details for any GSTN. Enforce an explicit authentication and administrator role check before allowing unrestricted cross-tenant lookups when `company_id` is absent.
+
+[CRITICAL] application/modules/mobile_app/controllers/bank_onboarding_form/Bank_register_controller.php:484 - Unauthenticated Access Bypass Exposes Sensitive Bank Credentials
+    category=Security confidence=0.95
+    The scoping check only runs when `$sessionCompanyID` is present, leaving requests with no `company_id` completely unrestricted. Unauthenticated external callers omitting session cookies will bypass the check and receive sensitive CBS keys and settlement bank accounts. In production, this allows unauthorized actors to access confidential financial institution credentials across all onboarded banks. Require explicit authentication and administrative authorization before allowing GST lookups when `company_id` is not present in the session.
+
+[HIGH] application/modules/cbs/controllers/CbsCron.php:2551 - Unbounded Loop with Individual Update Queries Causes N+1 Database Writes
+    category=Performance confidence=0.92
+    Executing an individual `$this->db->update()` query per expired customer inside a PHP loop creates an N+1 query write pattern that scales poorly. With large volumes of expired profiles, this sequential update pattern causes severe database lock contention, high latency, and potential script timeouts. In production, this can lead to partial updates and cron failure before all expired KYC records are updated. Replace the loop with a single `UPDATE` query joining `tbl_customers` and `tbl_customer_risk_profile`, or process the updates using batch updates in chunks.
+
+[MEDIUM] application/modules/cbs/views/customer-profile-management/kyc-information.php:266 - Direct Database Query Executed Inside View Template
+    category=Architecture confidence=0.88
+    Invoking `$this->CommonModel->select()` directly inside the view template violates MVC separation of concerns. Executing database operations within the presentation layer bypasses controller-level caching, complicates error handling, and impairs unit testing. In production, repeated view rendering triggers unnecessary database roundtrips that can degrade page response times. Move the risk profile lookup and expiry evaluation into the controller, passing only the resulting KYC status into the view.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: The PR addresses multi-tenant data access security across disparate controller copies while integrating KYC risk expiration workflows across cron tasks, database models, and presentation views.
+Factors:
+  - Introduces multi-tenant authorization logic on an endpoint returning sensitive banking credentials and settlement details.
+  - Implements a background cron process handling bulk KYC status revocations based on date thresholds.
+  - Spans 10 files across routing, controllers, models, views, and external payment integration endpoints.
+
+Fix Quality
+Level: NEEDS_IMPROVEMENT
+Summary: While the PR aims to isolate tenant access and automate expired KYC transitions, the authorization check fails to protect against unauthenticated requests and the cron job introduces an N+1 query loop.
+Strengths:
+  - Correctly handles whitespace trimming and case insensitivity when comparing GST numbers.
+  - Resolves SQL errors in NPCI request logging by updating the column reference from 'request_id' to 'id'.
+  - Incorporates Aadhaar verification flags alongside PAN verification across views and customer listing queries.
+Areas for Improvement:
+  - Enforce mandatory session authentication and verify OneStack administrative privileges when `company_id` is missing in fetchBankDetails.
+  - Refactor the expired KYC cron update from a per-row loop into a single set-based update or chunked batch update.
+  - Extract the database query out of the `kyc-information.php` view into its corresponding controller.
+
+Database Recommendations
+------------------------
+[MEDIUM] INDEX_CHECK
+    Table: tbl_customer_risk_profile
+    Columns: is_active, risk_expiry_date
+    Recommendation: Verify that a composite index exists on tbl_customer_risk_profile covering (is_active, risk_expiry_date).
+    Reason: The cron query in CbsCron::updateExpiredKycStatus filters on is_active = 1 and risk_expiry_date < current_date, which will perform a full table scan without an index.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] INDEX_CHECK
+    Table: tbl_customer_risk_profile
+    Columns: customer_id, bank_id, is_active
+    Recommendation: Verify that an index exists on tbl_customer_risk_profile(customer_id, bank_id, is_active).
+    Reason: kyc-information.php executes a lookup filtering by customer_id, bank_id, and is_active on every customer profile view load.
+    Action: Cross-check the actual database before release.
+
+[HIGH] COLUMN_EXISTENCE_CHECK
+    Table: tbl_customers
+    Columns: is_aadhar_no_verified
+    Recommendation: Verify that the column is_aadhar_no_verified exists in production tbl_customers and has an appropriate default value.
+    Reason: Multiple queries in CustomerProfileManagement, CbsCron, and CustomersListModel now select, update, or filter on is_aadhar_no_verified; missing schema migrations will cause fatal database errors.
+    Action: Cross-check the actual database before release.
+
+Business Context Review
+-----------------------
+Status: NOT COMPLETED
+Reason: All Business Context sources failed to load: /mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md' must start with 'file:', 'asana:', or 'notion:'.
+Technical Review: COMPLETED
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Dry run: skipping publish step. No changes were made to GitHub.
+EXIT=0 TOOK=96s

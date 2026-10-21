@@ -1,0 +1,136 @@
+2026-09-29 13:19:16 [WARNING] Business Context source '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md' failed to load: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md' must start with 'file:', 'asana:', or 'notion:'.
+2026-09-29 13:19:16 [ERROR] Business Context error: All Business Context sources failed to load: /mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md' must start with 'file:', 'asana:', or 'notion:'.
+2026-09-29 13:20:52 [INFO] Review succeeded on attempt 1/3 with 5 finding(s).
+Fetching metadata for PR #13441...
+Running review with provider 'claude'...
+
+AI Review Summary
+
+Overview:
+  What Changed: The main change scopes fetchBankDetails() (GST autofill on the bank onboarding form) so that a user with a company_id in session only gets data back when the posted GSTIN matches their own company's company_gstn. The same guard is added to both copies of Bank_register_controller. The diff also carries several merged, unrelated changes: (1) a new cron, updateExpiredKycStatus, and its route, which reset PAN/Aadhaar verification flags for customers whose active risk profile has expired; (2) the KYC status in the customer profile view now comes from is_pan_no_verified/is_aadhar_no_verified plus a risk-expiry lookup done inside the view; (3) the customer list gets a 'Not Done' KYC case when both flags are 0; (4) the NPCI ReqValAdd/ReqBalEnq/ReqPay XML lookups now use a different table and key column; (5) the YES Bank VPA error-log export adds a vpa_type = 'P2M' filter; (6) the NPCI merchant PAN verification call now posts a bankid read from the page.
+  Files Modified: application/config/cbs-routes.php, application/modules/cbs/controllers/CbsCron.php, application/modules/cbs/controllers/CustomerProfileManagement.php, application/modules/cbs/views/customer-account-management/npci-merchant-addition.php, application/modules/cbs/views/customer-profile-management/kyc-information.php, application/modules/mobile_app/controllers/Bank_register_controller.php, application/modules/mobile_app/controllers/bank_onboarding_form/Bank_register_controller.php, application/modules/mobile_app/controllers/npci-upi/NpciMobileAPIV6.php, application/modules/mobile_app/models/bank_onboarding_form/CompanyMaster_model.php, application/modules/mobile_app/models/pagination/CustomersListModel.php
+  High-Level Impact: The fetchBankDetails guard closes a cross-tenant leak of CBS API keys, settlement accounts and staff contacts for bank users. It is fail-closed for bank users, but it grants unrestricted access to any session without a company_id. The PR also ships several unrelated behaviour changes that the title and description don't mention: KYC status now changes by itself when a risk profile expires, including a new cron that bulk-resets verification flags; NPCI auth-failure XML lookups now read from a different table and key column; and the YES Bank error export changes.
+  Potential Review Focus: 1) Confirm that fetch-bank-detail cannot be reached by an unauthenticated or non-OneStack session that has no company_id. 2) The PR carries unrelated merged commits (KYC expiry cron, NPCI table switch, YES Bank export filter, PAN bankid). Confirm they are meant to ship under this security PR. 3) The KYC expiry logic is inconsistent across the cron, the profile view and the customer list. 4) Check whether the vpa_type = 'P2M' filter actually fixes the P2PM-failure visibility problem described in its comment.
+
+Code Flow Diagram
+-----------------
+The new authorization check in fetchBankDetails before bank onboarding details, including CBS keys and the settlement account, are returned.
+
+```mermaid
+flowchart TD
+    A[POST fetch-bank-detail with company_gstn] --> B{Session company_id present?}
+    B -->|No - treated as OneStack| E[Query tbl_bank_onboarding by GSTIN]
+    B -->|Yes - bank user| C[Load own company_gstn from tbl_company_master]
+    C --> D{Own GSTIN matches posted GSTIN?}
+    D -->|No / missing| F[Return Invalid user id]
+    D -->|Yes| E
+    E --> G[Return bank details incl. CBS keys and settlement account]
+```
+
+Relevant code: application/modules/mobile_app/controllers/Bank_register_controller.php, application/modules/mobile_app/controllers/bank_onboarding_form/Bank_register_controller.php
+
+Critical: 0
+High: 2
+Medium: 2
+Low: 1
+Suggestion: 0
+
+Total Findings: 5
+
+[HIGH] application/modules/mobile_app/models/bank_onboarding_form/CompanyMaster_model.php:770 - vpa_type = 'P2M' filter does not stop P2PM failures from being hidden
+    category=Correctness confidence=0.88
+    The NOT IN subquery still excludes error rows by mobile_no alone, and now does so for every customer who has an active P2M VPA. The comment says a P2PM attempt requires an existing P2M VPA, so exactly those customers remain excluded and their P2PM failures are still dropped from the export. The fix is effectively a no-op for the scenario it describes. To hide only rows whose own attempt later succeeded, correlate the error row's attempt type (or VPA) with upi.vpa_type, not just mobile_no.
+
+[HIGH] application/modules/mobile_app/controllers/Bank_register_controller.php:917 - Tenant check is fail-open when the session has no company_id
+    category=Security confidence=0.80
+    The guard runs only when company_id is non-empty, so any session without it (including a missing or 0 value) is treated as a privileged OneStack user and can fetch any bank's cbs_apikey, cbs_publickey and settlement account by GSTIN. That holds for anonymous or partially initialised sessions unless authentication is enforced somewhere this diff doesn't show, and this route is not under admin/, so PermissionService never runs. Check explicitly for a logged-in OneStack user (role or user-type flag) rather than relying on the absence of company_id. The same logic is in bank_onboarding_form/Bank_register_controller.php:485.
+
+[MEDIUM] application/modules/cbs/controllers/CbsCron.php:2542 - Expiry cron skips customers who are verified only by Aadhaar
+    category=Correctness confidence=0.80
+    The cron resets flags only where verify_panname is non-empty and not 'NA'. The profile view now treats is_aadhar_no_verified = 1 alone as Verified, and CustomersListModel uses both flags. So a customer verified only by Aadhaar whose risk profile has expired keeps is_aadhar_no_verified = 1, and the customer list keeps showing their KYC as done. Select on the verification flags (is_pan_no_verified = 1 OR is_aadhar_no_verified = 1) so all three places use the same definition of verified.
+
+[MEDIUM] application/modules/cbs/views/customer-profile-management/kyc-information.php:266 - Database query and KYC-expiry business rule placed in a view
+    category=Architecture confidence=0.85
+    The view now calls CommonModel->select on tbl_customer_risk_profile and decides KYC validity itself. That puts data access and a compliance rule in the presentation layer and duplicates the expiry logic in the cron. The rules can drift apart, and this one can't be unit-tested. Compute the KYC status in the controller or model (kycInformation/contactAndKyc) and pass it to the view.
+
+[LOW] application/modules/cbs/controllers/CbsCron.php:2553 - One UPDATE per customer, with no batching or transaction
+    category=Performance confidence=0.85
+    The cron loads every expired customer ID into memory and runs one UPDATE per row. On large tenants this means thousands of round trips, and a failure partway through leaves a partial update. It also increments updated_count without checking whether the update succeeded. A single set-based UPDATE (or where_in in chunks) would be faster and atomic, and would give an accurate affected-row count.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: The headline fix is a single-endpoint tenant-isolation check, but the diff also bundles KYC-expiry rules, NPCI lookup changes and an export filter fix. Together these touch several modules and regulatory-sensitive data.
+Factors:
+  - The endpoint returns CBS credentials and settlement account data, so an authorization mistake has a high impact
+  - Distinguishing tenants relies on session state (company_id) rather than an explicit role
+  - The access check depends on tbl_company_master.company_gstn matching tbl_bank_onboarding.gst_number in production
+  - The bundled KYC-expiry change spans a cron, a view and a list query, and they must stay consistent
+  - The bundled NPCI changes switch which tables and key columns the XML request/response lookups use
+
+Fix Quality
+Level: NEEDS_IMPROVEMENT
+Summary: For bank users, the fetchBankDetails guard is fail-closed and correctly normalised, which fixes the reported cross-bank leak. But it grants unrestricted access based on the absence of company_id, and the PR carries unrelated changes, one of which does not achieve its stated goal.
+Strengths:
+  - The guard is fail-closed for bank users: a missing company row, an empty company GSTIN or a mismatch all return the existing generic error
+  - GSTINs are compared case-insensitively and whitespace-trimmed, which avoids false denials
+  - The denial response matches the 'not found' response, so it does not reveal which GSTINs exist
+  - The fix is applied to both copies of the controller, and the PR description gives a production SQL check for data consistency
+Areas for Improvement:
+  - Grant cross-tenant access only to an explicitly identified OneStack user, not to any session without company_id
+  - Add automated tests for the allow/deny cases instead of relying only on an isolated manual check
+  - Split the unrelated merged changes (KYC expiry cron, NPCI table switch, YES Bank export, PAN bankid) out of this security PR so they are reviewed on their own
+  - Fix the YES Bank export subquery so it actually correlates on the attempt type
+  - Move the risk-expiry query out of the view and use one KYC-verified definition across the cron, the view and the customer list
+
+Database Recommendations
+------------------------
+[HIGH] PRODUCTION_DB_VERIFICATION
+    Table: tbl_company_master
+    Columns: id, company_gstn
+    Recommendation: Before release, run the SQL from the PR description to confirm that every active bank's company_gstn matches a tbl_bank_onboarding.gst_number (ignoring case and whitespace), and confirm company_gstn is populated for every active bank.
+    Reason: fetchBankDetails now denies bank users whose company_gstn is empty or differs from the onboarding GSTIN, so those users would lose the autofill.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] COLUMN_EXISTENCE_CHECK
+    Table: tbl_customers
+    Columns: is_aadhar_no_verified, is_pan_no_verified
+    Recommendation: Verify that is_aadhar_no_verified exists on tbl_customers in every environment, and check how many existing rows are NULL or 0 while the customer actually completed KYC.
+    Reason: The PR adds this column to the select lists in CustomerProfileManagement and uses it in CustomersListModel and the new cron. The KYC status shown to users now depends only on these flags.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] INDEX_CHECK
+    Table: tbl_customer_risk_profile
+    Columns: is_active, risk_expiry_date, customer_id, bank_id
+    Recommendation: Verify that indexes exist to support filtering on (is_active, risk_expiry_date) for the cron, and lookups on (customer_id, bank_id, is_active) for the profile view.
+    Reason: The new cron scans this table by is_active and expiry date and joins it to tbl_customers. The view queries it on every KYC page load.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] COLUMN_EXISTENCE_CHECK
+    Table: UPI table aliased `upi` in get_yesbankVpaGenerationErrorLog
+    Columns: vpa_type
+    Recommendation: Verify that vpa_type exists on this table and that existing YES Bank rows are populated with 'P2M' or 'P2PM' exactly as the query expects.
+    Reason: The export subquery now filters on upi.vpa_type = 'P2M'. Missing or NULL values would change which error rows are excluded.
+    Action: Cross-check the actual database before release.
+
+[HIGH] SCHEMA_CHANGE_CHECK
+    Table: NPCI_UPI_NON_FINANCIAL_REQUEST_RESPONSE / NPCI_UPI_FINANCIAL_REQUEST_RESPONSE
+    Columns: id, api_txnid, api_name, api_flag
+    Recommendation: Verify that ReqValAdd/ReqBalEnq rows are stored in the non-financial table, and that NPCI_UPI_XML_REQUEST_RESPONSE.request_id and NPCI_UPI_FINANCIAL_XML_REQUEST_RESPONSE.request_id reference the `id` of the respective request/response tables. Also verify that an index exists covering api_txnid.
+    Reason: The PR changes both the source table and the key column used to join to the XML tables. A mismatch would silently return no XML on the auth-failure path.
+    Action: Cross-check the actual database before release.
+
+Business Context Review
+-----------------------
+Status: NOT COMPLETED
+Reason: All Business Context sources failed to load: /mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134096.md' must start with 'file:', 'asana:', or 'notion:'.
+Technical Review: COMPLETED
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Dry run: skipping publish step. No changes were made to GitHub.
+EXIT=0 TOOK=96s

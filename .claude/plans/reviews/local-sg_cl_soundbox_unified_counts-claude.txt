@@ -1,0 +1,6 @@
+2026-10-12 10:42:41 [ERROR] Command exited with status 128: git diff onestackcbs...sg_cl_soundbox_unified_counts
+stderr: fatal: not a git repository: /mnt/c/xampp/htdocs/oneStack-worktrees/sg_cl_soundbox_unified_counts/C:/xampp/htdocs/oneStackLocal/.git/worktrees/sg_cl_soundbox_unified_counts
+Error: Command exited with status 128: git diff onestackcbs...sg_cl_soundbox_unified_counts
+stderr: fatal: not a git repository: /mnt/c/xampp/htdocs/oneStack-worktrees/sg_cl_soundbox_unified_counts/C:/xampp/htdocs/oneStackLocal/.git/worktrees/sg_cl_soundbox_unified_counts
+Comparing branches: 'sg_cl_soundbox_unified_counts' -> 'onestackcbs'...
+EXIT=1 TOOK=0s

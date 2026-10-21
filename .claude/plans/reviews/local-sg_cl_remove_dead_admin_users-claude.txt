@@ -1,0 +1,56 @@
+2026-10-05 10:05:17 [INFO] Review succeeded on attempt 1/3 with 0 finding(s).
+Comparing branches: 'sg_cl_remove_dead_admin_users' -> 'onestackcbs'...
+Running review with provider 'claude'...
+
+AI Review Summary
+
+Overview:
+  What Changed: Deletes two legacy CodeIgniter controllers under application/controllers/admin/: Users.php (the active-looking admin Users controller with index, myProfile, editUser, changeUserStatus, deleteUser, getUsersList, resend_cred_mail, userResetPassword) and Users_original.php (an older ion_auth-based copy that declares the same class name). No other files are touched.
+  Files Modified: application/controllers/admin/Users.php, application/controllers/admin/Users_original.php
+  High-Level Impact: Every named route for these user-management URLs (e.g. admin/users-view/users, admin/profile-view/users/my-profile, admin/users_list-delete/delete-user, admin/users_list-edit/change-user-status, admin/users-view/users/resend-cred-mail) already resolves to mobile_app/Users in routes.php, so routed behaviour should not change. The real change is that CI's default URI routing (admin/users/<method>) can no longer reach these methods. That shrinks the attack surface: deleteUser, changeUserStatus, userResetPassword and editUser had no per-method role check, and editUser allowed changing any user's password and role by ID.
+  Potential Review Focus: Confirm that no environment-specific routes file (application/config/<ENV>/routes.php or cbs-routes.php) and no JS or AJAX call targets the default-routed path admin/users/<method>, such as admin/users/userResetPassword or admin/users/getUsersList. Also check whether the now-orphaned views under application/views/admin/users/ are still loaded by another controller.
+
+Critical: 0
+High: 0
+Medium: 0
+Low: 0
+Suggestion: 0
+
+Total Findings: 0
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: LOW
+Summary: This removes dead code: two controller files with no dependants on the routed path. The only real risk is a hidden caller using CI's default URI routing or an environment-specific route.
+Factors:
+  - Deletion only: no new logic, schema or config changes
+  - Routes are spread across four merged files, so proving the code is unreachable needs a cross-file check
+  - Removing these files also removes default-routed admin endpoints that had weak authorization
+
+Fix Quality
+Level: GOOD
+Summary: This is a clean, scoped deletion. The base routes.php already maps every relevant user-management route to mobile_app/Users, which supports the claim that these files are unused.
+Strengths:
+  - Removes Users_original.php, which declared a duplicate Users class and could collide if both files were ever loaded
+  - Removes default-routed endpoints (deleteUser, changeUserStatus, userResetPassword, editUser) that had no role check beyond the Admin_Controller base
+  - Scoped to a single concern, with no unrelated changes
+Areas for Improvement:
+  - The PR description is empty. It should list the evidence that these files are dead (the route grep across routes.php, cbs-routes.php and the per-environment route files) so reviewers can verify it quickly
+  - Consider removing or noting any views under application/views/admin/users/ that are now orphaned, or state explicitly that this is deferred
+
+Database Recommendations
+------------------------
+None identified.
+
+Business Context Review
+-----------------------
+Status: NOT PROVIDED
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Branch comparison mode: this review is not published to GitHub -- there is no pull request to attach it to.
+EXIT=0 TOOK=46s

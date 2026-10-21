@@ -1,0 +1,61 @@
+2026-09-24 16:39:40 [INFO] Review succeeded on attempt 1/3 with 2 finding(s).
+Comparing branches: 'sg_demo_branch' -> 'onestackcbs'...
+Running review with provider 'claude'...
+
+AI Review Summary
+
+Overview:
+  What Changed: Adds a new public route `information` mapped to a new `Auth::php_test()` controller action that dumps PHP/server environment details and attempts to mkdir a hardcoded production log path.
+  Files Modified: application/config/routes.php, application/controllers/Auth.php
+  High-Level Impact: Introduces a debug/diagnostic endpoint on the `Auth` controller (which extends `MY_Controller` directly, not `Auth_Controller`/`Admin_Controller`), so it is reachable without authentication via the new `information` route. It leaks server/environment information and performs a filesystem side effect (mkdir) with a hardcoded production path on every hit, with no access control.
+  Potential Review Focus: Whether this debug endpoint (`auth/php_test`) was meant to be merged at all, whether `Auth` routes are actually unauthenticated in practice, and the information/side-effect exposure of `var_dump()`-ing environment data plus `mkdir()`/`error_get_last()` output to any caller.
+
+Critical: 1
+High: 1
+Medium: 0
+Low: 0
+Suggestion: 0
+
+Total Findings: 2
+
+[CRITICAL] application/controllers/Auth.php:1496 - Unauthenticated endpoint dumps sensitive server/environment info
+    category=Security confidence=0.93
+    `php_test()` is added to `Auth`, which extends `MY_Controller` directly (not `Auth_Controller`), and is wired via the new unauthenticated `information` route, so it var_dumps PHP version, SAPI, OS user, UID, `open_basedir`, `disable_functions`, and temp dir to any anonymous caller. This is a reconnaissance goldmine (version fingerprinting, disabled-function enumeration, real OS username) that materially aids further attacks against the box. This debug action should not be merged into `onestackcbs`; remove it or gate it behind strong admin authentication.
+
+[HIGH] application/controllers/Auth.php:1498 - Hardcoded production path with mkdir side effect on every request, exposed to caller
+    category=Reliability confidence=0.88
+    The action hardcodes a production filesystem path (`/var/www/vhosts/rbank.in/...`) and calls `mkdir()` on it on every request, then exposes the boolean result and `error_get_last()` in the response body. This is scratch/debug code with an environment-specific path baked in, causing an uncontrolled write attempt and leaking filesystem/error state to unauthenticated callers on each hit. It should be removed before this reaches production rather than shipped as a live controller action.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: LOW
+Summary: This PR does not solve a business or technical problem — it adds one hardcoded diagnostic route and a leftover debug function with no branching, integrations, or data model involvement.
+Factors:
+  - Single new route mapping with no conditions
+  - Single new controller method with no business logic, just var_dump plus one mkdir call
+  - No database, API contract, or cross-module changes
+
+Fix Quality
+Level: POOR
+Summary: The change introduces an unauthenticated debug/reconnaissance endpoint with a hardcoded production path and no legitimate feature purpose, representing leftover test code rather than a solution to any stated problem.
+Areas for Improvement:
+  - Remove the `php_test()` action and the `information` route entirely before merging to `onestackcbs`
+  - If server diagnostics are genuinely needed, gate them behind `Admin_Controller`/permission checks and avoid dumping `disable_functions`/`open_basedir`/usernames to the response
+  - Avoid hardcoding environment-specific filesystem paths in application controllers
+
+Database Recommendations
+------------------------
+None identified.
+
+Business Context Review
+-----------------------
+Status: NOT PROVIDED
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Branch comparison mode: this review is not published to GitHub -- there is no pull request to attach it to.
+EXIT=0 TOOK=89s

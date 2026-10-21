@@ -1,0 +1,105 @@
+2026-09-29 10:26:22 [INFO] Review succeeded on attempt 1/3 with 2 finding(s).
+Fetching metadata for PR #13424...
+Running review with provider 'claude'...
+
+AI Review Summary
+
+Overview:
+  What Changed: getBankKeysYesbankKYC() now reads the YES Bank YPP Seller keys (ENCRYPTION_KEY, PARTNER_REF_PREFIX, PRODUCTION_TYPE) from the new vendor configuration through getVendorModuleConfig() using the new YPP_SELLER_MODULE slug. partner_key still comes from company_master. The new config is used only when it is enabled and complete; otherwise the existing old-table query runs unchanged. The same change is made in both copies of CommonModel, and a new constant is added in constants.php.
+  Files Modified: application/config/constants.php, application/models/common/CommonModel.php, application/modules/mobile_app/models/common/CommonModel.php
+  High-Level Impact: This runs on every mobile app login (verify-otp and verify-customer) and decides which YES Bank encryption key the app receives. On the new-config path the $mode argument (sandbox_value or production_value) is ignored, so the environment is now decided by which database the code runs against, not by the caller. Every call now makes at least one extra config lookup, and banks still on the old tables pay for that lookup before the fallback query runs.
+  Potential Review Focus: Check that ignoring $mode on the new path is safe for every caller, especially any that pass sandbox_value while connected to the production database. Check that getVendorModuleConfig() always returns an array 'config' key and returns SECRET-type values (ENCRYPTION_KEY) decrypted, not masked or encrypted. Check that the completeness rule matches how banks will be onboarded, and that the two duplicated CommonModel bodies stay in sync.
+
+Code Flow Diagram
+-----------------
+Shows how getBankKeysYesbankKYC() now chooses between the new vendor config and the old config tables when returning the YES Bank keys.
+
+```mermaid
+flowchart TD
+    A[App login: verify-otp / verify-customer] --> B[getBankKeysYesbankKYC]
+    B --> C[getVendorModuleConfig with YPP_SELLER_MODULE]
+    C --> D{Enabled, prefix and type keys present, and ENCRYPTION_KEY not empty?}
+    D -->|Yes| E[Read yesbank_partner_key from company_master]
+    E --> F[Return keys from new config, mode ignored]
+    D -->|No| G[Old config tables query using mode column]
+    G --> H[Return keys from old tables]
+```
+
+Relevant code: application/models/common/CommonModel.php, application/modules/mobile_app/models/common/CommonModel.php, application/config/constants.php
+
+Critical: 0
+High: 0
+Medium: 1
+Low: 1
+Suggestion: 0
+
+Total Findings: 2
+
+[MEDIUM] application/models/common/CommonModel.php:4090 - $mode is silently ignored once a bank is on the new config
+    category=Correctness confidence=0.80
+    The old schema keeps sandbox_value and production_value side by side in the same row, which means one database can serve both modes chosen by the caller. The new path always returns the single stored value whatever $mode is passed. After a bank is migrated, any caller that asks for sandbox_value on the production database (for example UAT or test builds, or hostname-based sandbox checks) will quietly get production encryption keys, or the reverse. Audit all callers of getBankKeysYesbankKYC() for how they pass $mode, and either confirm none depend on per-call mode switching or make the new config lookup mode-aware.
+
+[LOW] application/modules/mobile_app/models/common/CommonModel.php:3947 - No automated tests for the new/old config decision rule
+    category=Testing confidence=0.82
+    The rule that decides between the new config and the old tables (enabled status, required keys present, non-empty ENCRYPTION_KEY) was only checked by hand against 6 sample inputs. It controls which encryption keys are sent to the app on every login, and the logic is duplicated in two files. Add unit tests that mock getVendorModuleConfig() so a regression in either copy is caught automatically.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: Moving one function's config source is small in code, but it needs a safe per-bank migration with fallback, it serves security-sensitive encryption keys on the login path, and the logic must stay identical in two model copies.
+Factors:
+  - Encryption keys are served to the mobile app on every login
+  - Banks migrate one at a time, so the new and old config sources must coexist
+  - The environment (sandbox/production) is now decided by the database instead of the $mode parameter
+  - Logic is duplicated across two autoloaded CommonModel files
+  - Correctness depends on admin data entered on several setup screens
+
+Fix Quality
+Level: GOOD
+Summary: The change is small and defensive. It falls back to the old tables in full and never mixes the two sources, and the return shape stays the same. The main gaps are the unaudited semantics of $mode and the lack of automated tests.
+Strengths:
+  - The new config is used only when complete, so a half-entered config cannot return empty keys
+  - The return array keys and null handling match the old query, so the API contract with the app is unchanged
+  - The old query is kept as the full fallback, so banks can migrate one at a time without breaking logins
+  - The same change is applied to both CommonModel copies
+Areas for Improvement:
+  - Confirm, or enforce in code, that no caller depends on $mode selecting sandbox or production values on the same database
+  - Add unit tests for the new/old decision rule
+  - The isset() checks on ENCRYPTION_KEY, PARTNER_REF_PREFIX and PRODUCTION_TYPE in the return block repeat what the guard condition already checks
+  - Banks still on the fallback now run the config lookup and then the old query on every login; consider whether the lookup result should be cached
+
+Database Recommendations
+------------------------
+[HIGH] PRODUCTION_DB_VERIFICATION
+    Table: tbl_company_module_vendor_mapping
+    Columns: company_id, is_enabled, vendor_module_id
+    Recommendation: Before enabling any bank, verify on rbank and then production that the Sub Module with slug 'ypp_seller_ypp_seller' exists and that each bank's ENCRYPTION_KEY, PARTNER_REF_PREFIX and PRODUCTION_TYPE match the production_value (or sandbox_value, as appropriate) currently in the old config tables for that environment.
+    Reason: Once a bank's config is complete and enabled, the code switches that bank to the new source. A wrong key or wrong environment value would break YES Bank seller registration for every user of that bank who logs in.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] INDEX_CHECK
+    Table: tbl_company_module_vendor_mapping / tbl_vendor_module_mapping
+    Columns: company_id, vendor_module_id, child_module_slug
+    Recommendation: Verify that indexes exist on the columns getVendorModuleConfig() filters and joins on (company_id, vendor_module_id, child_module_slug), plus the related config value table.
+    Reason: This lookup now runs on every app login, before the old query, so it adds latency to a high-traffic path if it is not indexed.
+    Action: Cross-check the actual database before release.
+
+[LOW] COLUMN_EXISTENCE_CHECK
+    Table: company_master
+    Columns: yesbank_partner_key
+    Recommendation: Verify that company_master.yesbank_partner_key is filled in for each bank being moved to the new config, and that the lookup by id uses the primary key.
+    Reason: On the new path, partner_key is read by a separate select on company_master and returns null if the column is empty.
+    Action: Cross-check the actual database before release.
+
+Business Context Review
+-----------------------
+Status: NOT PROVIDED
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Dry run: skipping publish step. No changes were made to GitHub.
+EXIT=0 TOOK=45s

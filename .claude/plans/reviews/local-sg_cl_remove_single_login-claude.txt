@@ -1,0 +1,66 @@
+2026-10-04 17:56:25 [INFO] Review succeeded on attempt 1/3 with 0 finding(s).
+2026-10-04 17:56:58 [INFO] Business review succeeded on attempt 1/3 with 0 finding(s).
+Comparing branches: 'sg_cl_remove_single_login' -> 'onestackcbs'...
+Running review with provider 'claude'...
+Running Business Context review...
+
+AI Review Summary
+
+Overview:
+  What Changed: Turns off the passwordless sandbox login. The `single-login` route is commented out in routes.php, the whole `Auth::singleLogin()` controller method is wrapped in a block comment, and the live-mode 'Log in to Sandbox' sidebar button now posts to `https://rbank.in` instead of `https://rbank.in/single-login`.
+  Files Modified: application/config/routes.php, application/controllers/Auth.php, application/views/admin/_templates/main_sidebar.php
+  High-Level Impact: Closes an unauthenticated login path: anyone who POSTed a known operator email (super-admins included) to /single-login got a full session with no password, token, signature or expiry check. The route and the controller method are both gone, so the URL now returns 404 instead of logging anyone in. Operators who used the one-click shortcut to reach the sandbox now have to enter their password on rbank.in. `Ion_auth_model::singleLogin()` is deliberately kept because `Auth::completeLogin()` still uses it for the normal login flow.
+  Potential Review Focus: Make sure this change is actually deployed to rbank.in (the sandbox), because that is where the hole is; merging to production alone does not fix it. Confirm no mobile app build or outside system calls /single-login, since this repo cannot show that. The block comment in Auth.php was checked: it contains no inner `*/`, and `Auth::completeLogin()` calls the Ion_auth model method, not the controller method that was removed. No environment-specific routes file re-defines `single-login`.
+
+Critical: 0
+High: 0
+Medium: 0
+Low: 0
+Suggestion: 0
+
+Total Findings: 0
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: LOW
+Summary: The fix only has to remove one public, unauthenticated login endpoint and repoint one UI link. The security impact is high, but the technical change is small and contained.
+Factors:
+  - One route, one controller method and one view URL are involved
+  - Only one other caller exists (Auth::completeLogin), and it uses the Ion_auth model method, which is kept
+  - The fix must reach the sandbox deployment (rbank.in), and possible callers outside the repo (mobile builds) cannot be checked from here
+
+Fix Quality
+Level: GOOD
+Summary: The change fully closes the passwordless login path by removing both the route and the handler, and it matches the agreed plan, with no functional defects in the diff. There are no automated tests, which is expected given the repo's current state.
+Strengths:
+  - Removes both the route and the controller method, so the default CI URL /auth/singleLogin is not reachable either
+  - Keeps Ion_auth_model::singleLogin(), which the normal completeLogin flow depends on
+  - The block comment is safe: the commented method contains no `*/` that would end the comment early
+  - The comments explain the reason for disabling and cite the tracking IDs, so the change is easy to find and revert
+  - The sidebar now behaves the same as the existing production-direction button
+Areas for Improvement:
+  - The live-mode sidebar form still sends a hidden user_email field to https://rbank.in, which that page ignores. It does no harm, but it now serves no purpose
+  - No regression check was added (e.g. a smoke test that POST /single-login returns 404), so the fix has to be checked by hand after deploying to rbank.in
+
+Database Recommendations
+------------------------
+None identified.
+
+Business Context Review
+-----------------------
+Status: COMPLETED
+
+Requirements: 5 identified, 5 covered, 0 partially covered
+Scenarios: 3 identified, 3 covered, 0 missing
+Business Rules: 4 identified, 4 satisfied, 0 violated
+
+Total Business Findings: 0
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Branch comparison mode: this review is not published to GitHub -- there is no pull request to attach it to.
+EXIT=0 TOOK=98s

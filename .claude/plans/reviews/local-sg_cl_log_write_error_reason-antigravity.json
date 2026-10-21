@@ -1,0 +1,11 @@
+[
+  {
+    "file": "application/controllers/Auth.php",
+    "line": 913,
+    "severity": "HIGH",
+    "confidence": 0.95,
+    "category": "Performance",
+    "title": "Temporary Test Logging in Production Controller",
+    "comment": "Temporary test logging code was committed to the login controller and executes on every login page render. This introduces blocking filesystem I/O and creates date-based folders in the working directory on an unauthenticated endpoint. Under production traffic, this could lead to disk bloat and performance degradation on the login flow. Revert this temporary commit or remove the writeLogRaw call before merging."
+  }
+]

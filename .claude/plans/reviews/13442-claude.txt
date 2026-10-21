@@ -1,0 +1,136 @@
+2026-09-29 13:20:55 [WARNING] Business Context source '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134095.md' failed to load: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134095.md' must start with 'file:', 'asana:', or 'notion:'.
+2026-09-29 13:20:55 [ERROR] Business Context error: All Business Context sources failed to load: /mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134095.md: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134095.md' must start with 'file:', 'asana:', or 'notion:'.
+2026-09-29 13:22:24 [INFO] Review succeeded on attempt 1/3 with 5 finding(s).
+Fetching metadata for PR #13442...
+Running review with provider 'claude'...
+
+AI Review Summary
+
+Overview:
+  What Changed: The stated change adds authentication to the customer, CBS-customer and card import admin controllers. CustomerAccountImport and CbsCustomerAccountImport now extend Admin_Controller instead of CI_Controller. The cron-only queue processors and validators move verbatim into a new CustomerAccountImportCron controller that extends CI_Controller. Two cron routes are retargeted and their route keys are unchanged. The diff also carries changes from merged commits that the PR description does not mention: a new CbsCron::updateExpiredKycStatus cron and its route, a KYC status rework in kyc-information.php and CustomersListModel, is_aadhar_no_verified added to the customer profile selects, NPCI lookups moved to a different table and column in NpciMobileAPIV6, a vpa_type = P2M filter in the YES Bank VPA error-log export, and a bankid parameter on the PAN verification AJAX call.
+  Files Modified: application/config/cbs-routes.php, application/modules/cbs/controllers/CbsCron.php, application/modules/cbs/controllers/CbsCustomerAccountImport.php, application/modules/cbs/controllers/CustomerAccountImport.php, application/modules/cbs/controllers/CustomerAccountImportCron.php [NEW], application/modules/cbs/controllers/CustomerProfileManagement.php, application/modules/cbs/views/customer-account-management/npci-merchant-addition.php, application/modules/cbs/views/customer-profile-management/kyc-information.php, application/modules/mobile_app/controllers/npci-upi/NpciMobileAPIV6.php, application/modules/mobile_app/models/bank_onboarding_form/CompanyMaster_model.php, application/modules/mobile_app/models/pagination/CustomersListModel.php
+  High-Level Impact: Import upload, delete and list routes now require an admin login and bank-list add, view or delete permission, so staff without add or delete on bank-list lose those actions. Cron processing keeps working through the new unauthenticated controller at the same URLs. The bundled changes add a cron that permanently resets verify_panname and the PAN/Aadhaar verification flags for customers whose risk profile has expired. They also change how KYC status is derived on the profile page and the customer list, and change which NPCI tables and columns are used to fetch request and response XML on invalid-token paths.
+  Potential Review Focus: 1) Confirm the PR is meant to include the KYC-expiry, NPCI and YES Bank changes; they look like merge carry-over from onestackcbs into a PR targeting onestackcbs-dev. 2) The destructive, row-by-row updates in updateExpiredKycStatus. 3) Whether the NPCI XML request_id foreign keys match the new id lookups, including the ReqPay path that still reads the financial table. 4) The admin permission mapping for the import routes and which production roles lose access. 5) Confirm that no other code calls the validators that moved out of CustomerAccountImport.
+
+Code Flow Diagram
+-----------------
+Shows how customer-import requests are now routed: admin routes pass through Admin_Controller's login and permission checks, while cron routes go to the new unauthenticated cron controller.
+
+```mermaid
+flowchart TD
+    A[Incoming request] --> B{Route prefix}
+    B -->|admin/bank-list-*, admin/all_customers-delete| C[CustomerAccountImport / CbsCustomerAccountImport]
+    C --> D[Admin_Controller: login check]
+    D -->|Not logged in| E[Redirect to auth/login]
+    D -->|Logged in| F[PermissionService: bank-list / all_customers action]
+    F -->|Denied| G[Access denied]
+    F -->|Allowed| H[Upload / Delete / List import queue]
+    B -->|cron/process-customer-account-*-import-queue| I[CustomerAccountImportCron]
+    I --> J[Process queued spreadsheet from S3]
+    J --> K[Create/Update customers, accounts, cards]
+```
+
+Relevant code: application/config/cbs-routes.php, application/modules/cbs/controllers/CustomerAccountImport.php, application/modules/cbs/controllers/CbsCustomerAccountImport.php, application/modules/cbs/controllers/CustomerAccountImportCron.php
+
+Critical: 0
+High: 1
+Medium: 3
+Low: 1
+Suggestion: 0
+
+Total Findings: 5
+
+[HIGH] application/modules/cbs/controllers/CbsCron.php:2554 - KYC-expiry cron destroys verified PAN name data
+    category=Correctness confidence=0.85
+    updateExpiredKycStatus overwrites verify_panname with 'NA' and clears is_pan_no_verified and is_aadhar_no_verified whenever a risk profile has expired, so the verified PAN name is permanently lost. If the risk profile is later renewed, the customer stays 'Not Verified' and must be fully re-verified, and there is no audit trail of the old value. The profile view already derives expiry from risk_expiry_date. Consider not mutating the verification data, or at least keep the original value (for example in a history or audit column) and document the reset as intended business behaviour.
+
+[MEDIUM] application/config/cbs-routes.php:1492 - PR diff contains unrelated, undescribed functional changes
+    category=General confidence=0.90
+    Besides the import auth fix, the diff adds a new KYC-reset cron and route, changes KYC status logic in two places, changes NPCI table and column lookups, and filters the YES Bank error export. None of this is mentioned in the description or verification notes. It appears to come from merged onestackcbs commits while the PR targets onestackcbs-dev. Reviewers approving a security fix would also approve unreviewed data-mutating logic, so rebase the branch or split the PR so that only the intended changes are merged.
+
+[MEDIUM] application/modules/cbs/controllers/CbsCron.php:2552 - Per-row UPDATE loop in KYC-expiry cron
+    category=Performance confidence=0.85
+    The cron loads every expired customer ID into memory and then runs one UPDATE per customer, with no batching or transaction. On the first run against production this could mean many thousands of individual writes on tbl_customers, and a failure partway through leaves the data partly updated. Use a single set-based UPDATE ... JOIN, or chunked where_in updates inside a transaction.
+
+[MEDIUM] application/modules/cbs/controllers/CbsCron.php:2542 - Aadhaar-only verified customers never reset on expiry
+    category=Correctness confidence=0.80
+    The cron only selects customers whose verify_panname is non-empty and not 'NA'. Customers verified only through Aadhaar (is_aadhar_no_verified = 1 with no verified PAN name) keep their flag after the risk profile expires. CustomersListModel reports KYC as 'Not Done' only when both flags are 0, so these customers still appear as KYC done in the list, which is inconsistent with the profile page. Base the filter on the verification flags rather than on verify_panname.
+
+[LOW] application/modules/cbs/views/customer-profile-management/kyc-information.php:266 - Database query and business rule placed in view
+    category=Architecture confidence=0.85
+    The view now calls $this->CommonModel->select on tbl_customer_risk_profile and decides the KYC-expiry rule inline, handling both result shapes defensively. This puts data access and a KYC business rule in the presentation layer, and the same rule is implemented differently in the cron and in CustomersListModel. Compute kycStatus in the controller or a shared service so all three stay consistent.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: The core problem is adding auth to admin routes without breaking cron entry points that share the same controller. This needs careful method separation and routing but no new business logic. The bundled KYC and NPCI changes add moderate data-consistency concerns.
+Factors:
+  - Admin and cron entry points shared one controller, so they had to be split before auth could be applied
+  - Route keys had to stay stable so the production crontab needs no change
+  - Permission mapping on admin routes changes access for existing roles
+  - Bundled changes mutate customer KYC verification state and change NPCI request lookups
+
+Fix Quality
+Level: GOOD
+Summary: The auth fix is correct and cautious: controller methods move verbatim, route keys are unchanged, and routes were verified both logged-in-less and via CLI. Overall quality is lowered by unrelated, undescribed changes carried in the same diff, one of which is a destructive KYC cron.
+Strengths:
+  - Cron entry points are split into a CI_Controller-based class, matching the existing CbsCron and LoanCron pattern
+  - Route keys are preserved, so no crontab change is needed
+  - Moved methods were checked byte-for-byte, and logged-out behaviour was checked on all 9 admin routes
+  - The permission behaviour change is documented explicitly
+Areas for Improvement:
+  - Remove or split the unrelated merge carry-over (KYC cron, KYC status logic, NPCI and YES Bank changes) from this PR
+  - Make updateExpiredKycStatus set-based and non-destructive, or explicitly approve its data loss
+  - Test the upload, delete and list flows while logged in, with the affected roles, before release
+
+Database Recommendations
+------------------------
+[HIGH] PRODUCTION_DB_VERIFICATION
+    Table: tbl_customers
+    Columns: verify_panname, is_pan_no_verified, is_aadhar_no_verified
+    Recommendation: Before enabling cron/update-expired-kyc-status, run the cron's SELECT in production to count how many customers the first run would reset, and take a backup of the affected rows.
+    Reason: The new cron irreversibly overwrites verify_panname with 'NA' and clears the verification flags for every customer with an active, expired risk profile.
+    Action: Cross-check the actual database before release.
+
+[HIGH] DB_COMPATIBILITY_CHECK
+    Table: NPCI_UPI_XML_REQUEST_RESPONSE / NPCI_UPI_FINANCIAL_XML_REQUEST_RESPONSE
+    Columns: request_id
+    Recommendation: Check what the XML tables' request_id column references. The non-financial XML table's request_id should reference the non-financial request table's id. For the financial XML table, check whether request_id references the financial request table's id or its request_id column, since the ReqPay path now passes id.
+    Reason: NpciMobileAPIV6 switched the ReqValAdd and ReqBalEnq lookups to the non-financial table and the ReqPay lookup to the id column. If the join key is wrong, the XML lookups silently return nothing.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] COLUMN_EXISTENCE_CHECK
+    Table: tbl_customers
+    Columns: is_aadhar_no_verified
+    Recommendation: Verify that tbl_customers.is_aadhar_no_verified exists in every environment, and check its default and nullability (NULL makes '= 0' evaluate false in the CustomersListModel CASE).
+    Reason: The column is now selected in CustomerProfileManagement, filtered in CustomersListModel, and written by the new cron.
+    Action: Cross-check the actual database before release.
+
+[MEDIUM] INDEX_CHECK
+    Table: tbl_customer_risk_profile
+    Columns: is_active, risk_expiry_date, customer_id, bank_id
+    Recommendation: Verify whether indexes support filtering on (is_active, risk_expiry_date) and the join or lookup on (customer_id, bank_id).
+    Reason: The new cron filters by is_active and risk_expiry_date and joins on customer_id and bank_id. The KYC view looks up by customer_id, bank_id and is_active on every page render.
+    Action: Cross-check the actual database before release.
+
+[LOW] COLUMN_EXISTENCE_CHECK
+    Table: tbl_customer_upi (upi alias)
+    Columns: vpa_type
+    Recommendation: Verify that the vpa_type column exists on the UPI table used in get_yesbankVpaGenerationErrorLog, and that production values use the exact string 'P2M'.
+    Reason: The YES Bank error-log export now filters the NOT IN subquery on upi.vpa_type = "P2M".
+    Action: Cross-check the actual database before release.
+
+Business Context Review
+-----------------------
+Status: NOT COMPLETED
+Reason: All Business Context sources failed to load: /mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134095.md: Business Context value '/mnt/c/xampp/htdocs/oneStackLocal/.claude/plans/1217811081134095.md' must start with 'file:', 'asana:', or 'notion:'.
+Technical Review: COMPLETED
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Dry run: skipping publish step. No changes were made to GitHub.
+EXIT=0 TOOK=89s

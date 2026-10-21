@@ -1,0 +1,67 @@
+2026-09-19 19:18:46 [INFO] Review succeeded on attempt 1/3 with 4 finding(s).
+Fetching metadata for PR #13141...
+Running review with provider 'claude'...
+
+AI Review Summary
+
+Overview:
+  What Changed: Adds attempt-counting, time-windowed lockout, and failure logging around M-PIN verification in the NPCI IBMB mobile controller. Before verifying the submitted PIN, the code resolves the customer's mobile number and checks whether recent failed attempts (tracked in MOBILE_LOGIN_ATTEMPT, keyed by mobile number and event name) exceed a configurable threshold within a configurable time window; if so it short-circuits with MAX_ATTEMPTS_EXCEEDED. Each of the three existing PIN-failure branches (no stored PIN, hashed-PIN mismatch, plaintext-PIN mismatch) now also logs a failure record via a new mobile_otp_sent_logs helper. Two new private-ish helper methods, mobile_otp_sent_logs and is_max_otp_attempts_exceeded, are added to the controller.
+  Files Modified: application/modules/mobile_app/controllers/npci-ibmb/NpciIBMB.php
+  High-Level Impact: Closes the previously flagged critical gap of unlimited M-PIN guesses on a payment-authorization credential by introducing a sliding-window lockout. The check is skipped entirely when a mobile number cannot be resolved, so the protection is conditional rather than universal for this endpoint, and the counter is incremented via separate check-then-log calls with no locking, which is relevant for a security control meant to resist automated guessing.
+  Potential Review Focus: Verify what happens when mobile_no cannot be resolved (both custDetails and CUSTOMERS lookup empty) — confirm PIN verification is not left unprotected in that case; confirm concurrent/parallel requests cannot bypass the attempt cap; confirm HTTP_X_FORWARDED_FOR is not used anywhere for security decisions, only logging; confirm MOBILE_OTP_MAX_ATTEMPTS/MOBILE_OTP_ATTEMPTS_IN_SECONDS constants and MOBILE_LOGIN_ATTEMPT table are appropriate to share between OTP and M-PIN lockout tracking.
+
+Critical: 0
+High: 1
+Medium: 2
+Low: 1
+Suggestion: 0
+
+Total Findings: 4
+
+[HIGH] application/modules/mobile_app/controllers/npci-ibmb/NpciIBMB.php:510 - Lockout is fully bypassed when mobile number cannot be resolved
+    category=Security confidence=0.87
+    The new attempt-limiting check only runs `if (!empty($mobileNo) && ...)`, so when both the custDetails lookup and the CUSTOMERS fallback fail to return a mobile_no, PIN verification proceeds with no cap on attempts at all — reintroducing the exact unlimited-guess vulnerability this PR is meant to fix. Since this is a payment-authorization credential, any code path that leaves mobile_no empty (deleted/malformed customer record, lookup failure) becomes an unprotected brute-force vector. Recommend failing closed (deny or use a fallback key such as customer_id/account_no) when mobile_no cannot be determined, rather than skipping the check.
+
+[MEDIUM] application/modules/mobile_app/controllers/npci-ibmb/NpciIBMB.php:505 - Client-spoofable X-Forwarded-For trusted for stored IP
+    category=Security confidence=0.85
+    `$ip_address` is taken directly from `HTTP_X_FORWARDED_FOR` when present, which is fully attacker-controlled unless the app sits behind a trusted proxy that strips/overwrites it. Since this value is only persisted for logging and is not used in the lockout decision itself, the impact is limited to corrupting the audit trail used to investigate brute-force attempts against this payment credential, but that undermines the value of the new logging for incident response. Prefer taking the first trusted proxy hop (e.g., REMOTE_ADDR, or a validated proxy chain) rather than the raw header value.
+
+[MEDIUM] application/modules/mobile_app/controllers/npci-ibmb/NpciIBMB.php:510 - Check-then-log attempt counting is not atomic
+    category=Concurrency confidence=0.80
+    The attempt count is read via `is_max_otp_attempts_exceeded` and only written after verification fails via `mobile_otp_sent_logs`, with no locking or atomic increment between the two. An attacker sending several concurrent M-PIN guesses can have all of them pass the count check before any failure is logged, allowing a burst of guesses beyond `max_attempts` per window. For a control specifically meant to stop automated/brute-force guessing of a payment PIN, this gap materially weakens the protection under concurrent requests.
+
+[LOW] application/modules/mobile_app/controllers/npci-ibmb/NpciIBMB.php:1219 - No automated tests for new lockout logic
+    category=Testing confidence=0.82
+    The PR adds new security-critical branching (mobile number resolution, attempt counting, threshold comparison, lockout short-circuit) with no accompanying unit or integration tests. Given this replaces the previous 'no counter, lockout, or delay' gap for a payment-authorization credential, untested edge cases (empty mobile number, exact threshold boundary, window expiry) risk silently regressing the fix in future changes.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: Implementing brute-force lockout for an M-PIN verification endpoint is a well-understood pattern, but it required threading mobile-number resolution through multiple existing lookup paths and instrumenting three distinct failure branches in a payment-authorization flow.
+Factors:
+  - Single financial/security-critical endpoint (payment PIN verification) rather than a broad architectural change
+  - Reuses existing infrastructure (CommonModel, MOBILE_LOGIN_ATTEMPT table, OTP-style config constants) rather than introducing new components
+  - Requires correctly covering three separate failure branches (missing stored PIN, hashed mismatch, plaintext mismatch) and a mobile-number fallback lookup
+  - No new schema, external integration, or distributed-system concerns
+
+Fix Quality
+Level: NEEDS_IMPROVEMENT
+Summary: The change correctly adds attempt counting, a time-windowed lockout, and failure logging for the common case, directly addressing the flagged critical issue, but leaves a fail-open gap when the mobile number can't be resolved and doesn't guard against concurrent bypass, which are significant for a control targeting brute-force attacks on a payment credential.
+Strengths:
+  - Adds a sliding time-window attempt cap keyed on mobile number plus a distinct event name, reusing existing DB/config abstractions
+  - Instruments all three existing PIN-failure return paths consistently with logging
+  - Uses configurable constants with sane defaults (MOBILE_OTP_MAX_ATTEMPTS, MOBILE_OTP_ATTEMPTS_IN_SECONDS) rather than hardcoding thresholds
+Areas for Improvement:
+  - Fail closed (or use an alternate stable key) when mobile_no cannot be resolved, instead of skipping the lockout check entirely
+  - Address the check-then-log race condition so concurrent requests can't exceed the configured attempt cap
+  - Avoid trusting raw X-Forwarded-For for the logged IP without a proxy-aware extraction
+  - Add tests covering the lockout threshold, window expiry, and empty-mobile-number edge case
+
+Business Context Review
+-----------------------
+Status: NOT PROVIDED
+
+Dry run: skipping publish step. No changes were made to GitHub.
+EXIT=0 TOOK=84s

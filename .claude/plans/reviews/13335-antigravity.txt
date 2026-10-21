@@ -1,0 +1,64 @@
+2026-09-24 07:46:44 [INFO] Review succeeded on attempt 1/3 with 2 finding(s).
+2026-09-24 07:48:08 [INFO] Business review succeeded on attempt 1/3 with 0 finding(s).
+Fetching metadata for PR #13335...
+Running review with provider 'antigravity'...
+Running Business Context review...
+
+AI Review Summary
+
+Overview:
+  What Changed: Adds session-based bank scoping to three customer-count chart endpoints in DashboardChartsController.php to restrict bank users to their own organization's data, and introduces a queue reset mechanism for failed Yes Bank P2PM terminal UPI generation across AutomatedAPI.php and two CompanyMaster_model.php files.
+  Files Modified: application/modules/cbs/models/CompanyMaster_model.php, application/modules/mobile_app/controllers/AutomatedAPI.php, application/modules/mobile_app/controllers/dashboard/DashboardChartsController.php, application/modules/mobile_app/models/bank_onboarding_form/CompanyMaster_model.php
+  High-Level Impact: Prevents bank users from viewing customer counts belonging to other banks or platform totals on the dashboard. Concurrently introduces background queue retry logic that resets failed Yes Bank terminal UPI generation entries.
+  Potential Review Focus: Verify that multi-tenant session checks in DashboardChartsController.php correctly preserve superadmin access while isolating bank users, and check whether the unrelated UPI queue reset modifications in AutomatedAPI.php and CompanyMaster_model.php belong in this PR.
+
+Critical: 0
+High: 2
+Medium: 0
+Low: 0
+Suggestion: 0
+
+Total Findings: 2
+
+[HIGH] application/modules/mobile_app/controllers/AutomatedAPI.php:2370 - Unrelated Queue Logic Included in Branch
+    category=General confidence=0.95
+    This PR bundles commits modifying Yes Bank terminal UPI queue processing across AutomatedAPI.php and two CompanyMaster_model.php files, contradicting the PR title and description which scope the PR exclusively to DashboardChartsController.php. These background queue modifications were neither documented nor verified in the PR test plan. Shipping unverified background queue changes alongside an access-control fix introduces unnecessary deployment and regression risks. Rebase the branch against the intended base branch to isolate the dashboard changes into their own PR.
+
+[HIGH] application/modules/cbs/models/CompanyMaster_model.php:647 - Unbounded Retry Loop for Failed Queue Items
+    category=Reliability confidence=0.90
+    The resetFailedP2pmTerminalUpiGenerationQueue method unconditionally resets updated_on to NULL for failed queue records without tracking retry attempts. Any queue item that fails due to a permanent issue, such as invalid account data or bank-side validation errors, will be retried on every execution of queueYesbankTerminalUpiInline. This creates an unbounded retry loop that can exhaust server resources and repeatedly trigger downstream bank API failures. Implement a maximum retry limit or failure status column to avoid retrying doomed queue items perpetually.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: MEDIUM
+Summary: Addressing multi-tenant data leakage in reporting dashboards requires balancing strict session-based tenant isolation for single-bank users with unrestricted visibility and filtering for platform superadmins across multiple reporting queries.
+Factors:
+  - Multi-tenant authorization requirements distinguishing single-bank users from platform-wide administrative users.
+  - Multiple distinct data domains and queries involved, including customer registrations, app logins, and transactions across orders and UPI tables.
+  - Preserving backward compatibility with request-level dropdown filters so existing dashboard workflows remain functional.
+
+Fix Quality
+Level: NEEDS_IMPROVEMENT
+Summary: The dashboard chart scoping changes cleanly resolve the multi-tenant data leakage issue, but the PR inadvertently includes unrelated commits that modify Yes Bank UPI queue processing and introduce an infinite retry loop.
+Strengths:
+  - Properly enforces session-based bank filtering in DashboardChartsController.php across registrations, transacting customers, and app logins.
+  - Preserves platform-wide visibility and dropdown filtering for OneStack administrative users without modifying frontend contracts.
+  - Adheres to established query-filtering patterns used by other chart endpoints in the same controller.
+Areas for Improvement:
+  - Remove unrelated commits and files (AutomatedAPI.php and both CompanyMaster_model.php files) by rebasing against the target branch.
+  - Add an attempt limit or error status to resetFailedP2pmTerminalUpiGenerationQueue to prevent infinite retry loops on non-transient queue failures.
+
+Business Context Review
+-----------------------
+Status: COMPLETED
+
+Requirements: 5 identified, 5 covered, 0 partially covered
+Scenarios: 5 identified, 5 covered, 0 missing
+Business Rules: 4 identified, 4 satisfied, 0 violated
+
+Total Business Findings: 0
+
+Dry run: skipping publish step. No changes were made to GitHub.
+EXIT=0 TOOK=183s

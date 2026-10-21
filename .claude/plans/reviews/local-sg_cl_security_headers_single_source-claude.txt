@@ -1,0 +1,70 @@
+2026-10-05 11:24:23 [INFO] Review succeeded on attempt 1/3 with 1 finding(s).
+2026-10-05 11:25:10 [WARNING] Business review attempt 1/3: provider 'claude' returned invalid JSON: Finding at index 0 has an invalid 'severity': 'INFO'
+2026-10-05 11:25:57 [WARNING] Business review attempt 2/3: provider 'claude' returned invalid JSON: Finding at index 0 has an invalid 'severity': 'INFO'
+2026-10-05 11:26:45 [WARNING] Business review attempt 3/3: provider 'claude' returned invalid JSON: Finding at index 0 has an invalid 'severity': 'INFO'
+2026-10-05 11:26:45 [ERROR] Business Context review could not be completed: Finding at index 0 has an invalid 'severity': 'INFO'
+Comparing branches: 'sg_cl_security_headers_single_source' -> 'onestackcbs'...
+Running review with provider 'claude'...
+Running Business Context review...
+
+AI Review Summary
+
+Overview:
+  What Changed: Adds Referrer-Policy (strict-origin-when-cross-origin) and Permissions-Policy (camera=(), microphone=(), geolocation=()) header() calls to index.php right after the existing X-XSS-Protection header. Also adds a bash drift-check script with two modes: 'files' checks that both origin branches carry the two header lines in index.php, and 'live' compares response headers from admin.onestack.in and rbank.in and flags any header that is sent more than once.
+  Files Modified: index.php, scripts/check-security-headers.sh [NEW]
+  High-Level Impact: Every PHP response on both consoles now sends the two headers from application code, so rbank matches what production's server layer already sends. The Permissions-Policy header disables browser geolocation, camera and microphone site-wide. The script is an operator tool and is not wired into CI.
+  Potential Review Focus: 1) The site-wide geolocation=() block against the net-banking payment page that uses navigator.geolocation. 2) The live-mode comparison and duplicate-count logic. 3) That the out-of-repo removal of the server-level duplicate headers is tracked, because PHP header() cannot remove headers added by an earlier layer.
+
+Critical: 0
+High: 0
+Medium: 1
+Low: 0
+Suggestion: 0
+
+Total Findings: 1
+
+[MEDIUM] index.php:32 - geolocation=() disables location on the net-banking payment page
+    category=Correctness confidence=0.82
+    This Permissions-Policy is sent on every PHP response, so browsers will refuse navigator.geolocation calls everywhere. Per the task context, the ibmb/netBanking/payment view (paymentPage.php around line 495) calls navigator.geolocation. Once this reaches rbank, that page will no longer get location data, and it will silently fail if the JS has no error callback. Before merging, confirm whether that page needs location (e.g. for fraud or audit capture) and where it is served. If it does need it, scope the policy for that route (e.g. geolocation=(self)) instead of blocking it globally.
+
+PR Assessment
+-------------
+
+Problem Complexity
+Level: LOW
+Summary: Adding two static response headers in one entry point plus a standalone verification script. The main complexity is operational: two branches, two deployments, and a server-layer configuration outside the repo.
+Factors:
+  - Only two static header lines in a single file (index.php)
+  - Must stay identical across two long-diverged branches (onestackcbs and onestackcbs-dev)
+  - Interacts with server-level headers outside the repo that PHP cannot remove
+  - One known functional dependency: geolocation use on the payment page
+
+Fix Quality
+Level: GOOD
+Summary: The header change is minimal, matches the neighbouring header() style and uses exactly the values production already sends. The drift script is clear and fails safely, but the geolocation impact on the payment page has not been resolved.
+Strengths:
+  - Header values match the observed production values exactly, so production behaviour does not change
+  - Placed beside the existing header() calls in index.php, so the edit merges cleanly into both branches
+  - The script's grep -F exact-line matching avoids regex surprises with the parentheses in the policy value
+  - Live mode normalises CRLF and case, sorts values, detects duplicate headers, and exits non-zero when a fetch fails
+  - Has a fetch timeout (--max-time 20) and clear exit codes (0, 1, 2)
+Areas for Improvement:
+  - Resolve or explicitly accept the geolocation block on ibmb/netBanking/payment before this ships
+  - Live mode uses HEAD requests without following redirects, so it compares only the first response's headers. Document this, or confirm that /auth/login returns 200 on both hosts
+
+Database Recommendations
+------------------------
+None identified.
+
+Business Context Review
+-----------------------
+Status: NOT COMPLETED
+Reason: Finding at index 0 has an invalid 'severity': 'INFO'
+Technical Review: COMPLETED
+
+Test Case Review
+----------------
+Status: NOT PROVIDED
+
+Branch comparison mode: this review is not published to GitHub -- there is no pull request to attach it to.
+EXIT=0 TOOK=200s
